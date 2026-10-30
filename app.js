@@ -569,16 +569,20 @@ async function handle3DBuilderPrompt(userPrompt) {
     }
   }
   
-  // Step 2: Generate real 3D mesh with Meshy AI or Tripo3D
+  // Step 2: Validate 3D keys
   if (!has3DKey) {
-    // No 3D key: show helpful message
-    appendBotMessage(`🎯 **Script Luau generato!** Trovi il codice nella scheda "Codice Luau".\n\n⚠️ **Per il modello 3D reale**: Configura la tua chiave **Meshy AI** (gratuita) nelle Impostazioni API per generare mesh 3D GLB reali del tuo modello da importare in Roblox Studio!\n\n📌 Vai su [app.meshy.ai](https://app.meshy.ai) → crea account gratuito → copia la tua API key → incollala nelle ⚙️ Impostazioni.`);
+    appendBotMessage(`🎯 **Script Luau generato!** Trovi il codice nella scheda "Codice Luau".\n\n⚠️ **Per visualizzare e scaricare la Mesh 3D reale**:\nInserisci la tua chiave gratuita **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis in 1 minuto:**\n1. Vai su [app.meshy.ai](https://app.meshy.ai)\n2. Accedi con Google (hai 200 crediti gratis al mese)\n3. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n4. Incollala nelle impostazioni di BloxCraft AI.`);
     switchOutputTab('code');
     saveCurrentProjectState();
     return;
   }
+
+  // Check if user accidentally pasted Tripo key into Meshy field
+  if (CONFIG.meshyKey && CONFIG.meshyKey.startsWith('tsk_')) {
+    appendBotMessage(`⚠️ **Attenzione Chiave API:** Nel campo *Chiave Meshy AI* è stata inserita una chiave che inizia con \`tsk_\` (che appartiene a Tripo3D).\n\nLa chiave di Meshy AI deve iniziare con \`msy_...\`. Ottienila gratuitamente su [app.meshy.ai](https://app.meshy.ai).`);
+  }
   
-  appendBotMessage(`🎨 **Avvio generazione mesh 3D reale...** Sto inviando il prompt a ${CONFIG.meshyKey ? 'Meshy AI' : 'Tripo3D'} per creare un modello GLB professionale. Questo richiede 1-3 minuti. Puoi vedere il progresso nel viewport 3D.`);
+  appendBotMessage(`🎨 **Avvio generazione mesh 3D reale...** Sto inviando il prompt a ${CONFIG.meshyKey ? 'Meshy AI' : 'Tripo3D'} per creare il modello GLB. Questo richiede circa 1-2 minuti. Puoi seguire il progresso nel viewport 3D.`);
   switchOutputTab('3d');
   
   if (CONFIG.meshyKey) {
@@ -593,7 +597,6 @@ async function generateMeshyModel(prompt) {
   setMeshyStep(1);
   
   try {
-    // Step 1: Create preview task
     const createRes = await fetch('https://api.meshy.ai/openapi/v2/text-to-3d', {
       method: 'POST',
       headers: {
@@ -611,13 +614,15 @@ async function generateMeshyModel(prompt) {
     
     if (!createRes.ok) {
       const errData = await createRes.json().catch(() => ({}));
-      // Try Tripo fallback
-      if (CONFIG.tripoKey) {
-        showMeshyStatus(true, 'Meshy non disponibile, passo a Tripo3D...');
-        await generateTripoModel(prompt);
-        return;
+      const errMsg = errData.message || `Errore HTTP ${createRes.status}: ${createRes.statusText}`;
+      
+      if (createRes.status === 401) {
+        throw new Error(`Chiave Meshy non valida (${errMsg}). Verifica la chiave su app.meshy.ai (deve iniziare con 'msy_')`);
+      } else if (createRes.status === 402 || createRes.status === 429) {
+        throw new Error(`Crediti Meshy esauriti o limite raggiunto (${errMsg}).`);
+      } else {
+        throw new Error(errMsg);
       }
-      throw new Error(errData.message || `Errore Meshy ${createRes.status}: ${createRes.statusText}`);
     }
     
     const createData = await createRes.json();
@@ -652,12 +657,7 @@ async function generateMeshyModel(prompt) {
     showMeshyStatus(false);
     console.error('Meshy error:', err);
     
-    if (CONFIG.tripoKey) {
-      appendBotMessage(`⚠️ Meshy AI non disponibile (${err.message}). Passo a Tripo3D come backup...`);
-      await generateTripoModel(prompt);
-    } else {
-      appendBotMessage(`❌ **Errore Meshy AI**: ${err.message}\n\nVerifica che la tua chiave Meshy sia valida su [app.meshy.ai](https://app.meshy.ai) e che tu abbia crediti disponibili.`);
-    }
+    appendBotMessage(`❌ **Errore Meshy AI**: ${err.message}\n\n📌 **Come risolvere:**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Clicca in alto a destra sul tuo profilo o su **API Keys**\n3. Crea o copia la tua chiave (\`msy_...\`)\n4. Incollala in ⚙️ **Impostazioni API** nel campo *Chiave API Meshy AI*`);
   }
 }
 
@@ -766,7 +766,11 @@ async function generateTripoModel(prompt) {
   } catch(err) {
     stopMeshyTimer();
     showMeshyStatus(false);
-    appendBotMessage(`❌ **Errore Tripo3D**: ${err.message}\n\nVerifica la chiave API su [platform.tripo3d.ai](https://platform.tripo3d.ai).`);
+    if (err.message && err.message.includes('fetch')) {
+      appendBotMessage(`❌ **Errore di connessione Tripo3D (CORS)**: L'API di Tripo3D non permette chiamate dirette dal browser web senza un server proxy.\n\n👉 **Soluzione consigliata**: Usa **Meshy AI** per la generazione 3D! Meshy supporta al 100% le chiamate dirette dal browser. Puoi ottenere la chiave gratuita su [app.meshy.ai](https://app.meshy.ai) (200 crediti gratuiti ogni mese).`);
+    } else {
+      appendBotMessage(`❌ **Errore Tripo3D**: ${err.message}\n\nVerifica la chiave API su [platform.tripo3d.ai](https://platform.tripo3d.ai).`);
+    }
   }
 }
 
