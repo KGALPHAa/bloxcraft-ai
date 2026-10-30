@@ -19,6 +19,7 @@ const CONFIG = {
   instructionsMarkdown: '',
   current3DManifest: null,
   currentGlbUrl: null,        // URL of last GLB loaded from Meshy/Tripo
+  last3DPrompt: '',           // Description of current 3D model
   currentGlbBlob: null,       // Blob for download
   chatMessages: [],
   currentProjectId: localStorage.getItem('bloxcraft_current_project_id') || 'project_default'
@@ -93,15 +94,15 @@ const MODE_INFO = {
     title: 'Luau Script Architect',
     icon: 'code-2',
     color: 'text-blue-400',
-    desc: 'Crea logiche server, client, moduli e networking',
+    desc: 'Generatore puro di Script Luau per Roblox Studio (Google Gemini 3.8)',
     placeholder: "Descrivi cosa vuoi creare (es. 'Crea un sistema di spade con combo di 3 colpi, hitbox con Raycast e animazione')..."
   },
   '3d-builder': {
     title: '3D Builder — Meshy AI',
     icon: 'cuboid',
     color: 'text-emerald-400',
-    desc: 'Genera mesh 3D GLB reali con Meshy AI + Script Luau per Roblox Studio',
-    placeholder: "Descrivi il modello 3D da generare (es. 'Una spada medievale in acciaio blu con incisioni runiche', 'Un castello medievale con torri e mura', 'Un dragone stilizzato')..."
+    desc: 'Generatore puro di Mesh 3D GLB con Meshy AI (puoi aggiungere script Luau al termine)',
+    placeholder: "Descrivi il modello 3D da generare (es. 'Un drago del tempo viola con orologi che gli fluttuano attorno')..."
   },
   'ui-designer': {
     title: 'GUI & HUD Designer',
@@ -161,6 +162,8 @@ function saveCurrentProjectState() {
     chatMessages: CONFIG.chatMessages,
     generatedCode: CONFIG.generatedCode,
     current3DManifest: CONFIG.current3DManifest,
+    currentGlbUrl: CONFIG.currentGlbUrl,
+    last3DPrompt: CONFIG.last3DPrompt,
     instructionsMarkdown: CONFIG.instructionsMarkdown,
     updatedAt: Date.now()
   };
@@ -171,10 +174,18 @@ function saveCurrentProjectState() {
   // Update projects index
   let projectsList = getSavedProjectsIndex();
   const existingIdx = projectsList.findIndex(p => p.id === CONFIG.currentProjectId);
+  const summaryObj = { 
+    id: projectData.id, 
+    name: projectData.name, 
+    mode: projectData.mode, 
+    hasGlb: !!projectData.currentGlbUrl,
+    updatedAt: projectData.updatedAt 
+  };
+  
   if (existingIdx >= 0) {
-    projectsList[existingIdx] = { id: projectData.id, name: projectData.name, updatedAt: projectData.updatedAt };
+    projectsList[existingIdx] = summaryObj;
   } else {
-    projectsList.unshift({ id: projectData.id, name: projectData.name, updatedAt: projectData.updatedAt });
+    projectsList.unshift(summaryObj);
   }
   localStorage.setItem('bloxcraft_projects_index', JSON.stringify(projectsList.slice(0, 30)));
 }
@@ -191,6 +202,8 @@ function restoreCurrentProjectState() {
     CONFIG.activeMode = data.mode || 'scripting';
     CONFIG.generatedCode = data.generatedCode || '';
     CONFIG.current3DManifest = data.current3DManifest || null;
+    CONFIG.currentGlbUrl = data.currentGlbUrl || null;
+    CONFIG.last3DPrompt = data.last3DPrompt || '';
     CONFIG.instructionsMarkdown = data.instructionsMarkdown || '';
     CONFIG.chatMessages = data.chatMessages || [];
 
@@ -221,7 +234,11 @@ function restoreCurrentProjectState() {
     }
 
     // Restore 3D Model
-    if (CONFIG.current3DManifest) {
+    if (CONFIG.currentGlbUrl) {
+      loadGLBFromUrl(CONFIG.currentGlbUrl);
+      document.getElementById('downloadGlbBtn')?.classList.remove('hidden');
+      document.getElementById('addScriptToModelBtn')?.classList.remove('hidden');
+    } else if (CONFIG.current3DManifest) {
       render3DModel(CONFIG.current3DManifest);
     }
 
@@ -259,6 +276,8 @@ function createNewProject() {
   CONFIG.generatedCode = '';
   CONFIG.commandBarCode = '';
   CONFIG.current3DManifest = null;
+  CONFIG.currentGlbUrl = null;
+  CONFIG.last3DPrompt = '';
   CONFIG.instructionsMarkdown = '';
   CONFIG.chatMessages = [];
 
@@ -279,6 +298,8 @@ function createNewProject() {
   document.getElementById('threePlaceholder').classList.remove('hidden');
   document.getElementById('threeModelTitle').textContent = "Roblox 3D Studio Engine";
   document.getElementById('threePartCount').textContent = "0 Parti";
+  document.getElementById('downloadGlbBtn')?.classList.add('hidden');
+  document.getElementById('addScriptToModelBtn')?.classList.add('hidden');
 
   closeProjectsModal();
 }
@@ -295,14 +316,40 @@ function openProjectsModal() {
       </div>
     `;
   } else {
-    container.innerHTML = projects.map(p => `
+    container.innerHTML = projects.map(p => {
+      let badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">Luau Script</span>';
+      let icon = 'code-2';
+      let iconColor = 'text-blue-400';
+      let iconBg = 'bg-blue-500/10 border-blue-500/20';
+
+      if (p.mode === '3d-builder' || p.hasGlb) {
+        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Mesh 3D (Meshy)</span>';
+        icon = 'cuboid';
+        iconColor = 'text-emerald-400';
+        iconBg = 'bg-emerald-500/10 border-emerald-500/20';
+      } else if (p.mode === 'ui-designer') {
+        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">GUI HUD</span>';
+        icon = 'layout';
+        iconColor = 'text-purple-400';
+        iconBg = 'bg-purple-500/10 border-purple-500/20';
+      } else if (p.mode === 'debugger') {
+        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">Debugger</span>';
+        icon = 'bug';
+        iconColor = 'text-rose-400';
+        iconBg = 'bg-rose-500/10 border-rose-500/20';
+      }
+
+      return `
       <div class="p-3 rounded-xl bg-roblox-card border border-roblox-border flex items-center justify-between hover:border-roblox-accent/50 transition">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-            <i data-lucide="cuboid" class="w-4 h-4 text-blue-400"></i>
+          <div class="w-9 h-9 rounded-lg ${iconBg} border flex items-center justify-center shrink-0">
+            <i data-lucide="${icon}" class="w-4 h-4 ${iconColor}"></i>
           </div>
           <div>
-            <h4 class="font-bold text-white text-xs">${escapeHtml(p.name)}</h4>
+            <div class="flex items-center gap-2 mb-0.5">
+              <h4 class="font-bold text-white text-xs">${escapeHtml(p.name)}</h4>
+              ${badgeHtml}
+            </div>
             <span class="text-[10px] text-gray-500">${new Date(p.updatedAt).toLocaleDateString()} ${new Date(p.updatedAt).toLocaleTimeString()}</span>
           </div>
         </div>
@@ -310,12 +357,13 @@ function openProjectsModal() {
           <button onclick="loadProject('${p.id}')" class="px-3 py-1 rounded-lg bg-roblox-accent hover:bg-roblox-accentHover text-white text-xs font-semibold shadow-sm transition">
             Apri
           </button>
-          <button onclick="deleteProject('${p.id}')" class="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition">
+          <button onclick="deleteProject('${p.id}')" class="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition" title="Elimina progetto">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
           </button>
         </div>
       </div>
-    `).join('');
+      `;
+    }).join('');
   }
 
   lucide.createIcons();
@@ -517,78 +565,64 @@ async function submitPrompt() {
 }
 
 async function handle3DBuilderPrompt(userPrompt) {
-  const has3DKey = CONFIG.meshyKey || CONFIG.tripoKey;
-  
-  // Step 1: Generate Luau script with Gemini (if we have the key)
-  if (CONFIG.apiKey) {
-    showLoading(true);
-    document.getElementById('loadingText').textContent = 'Generazione Script Luau con Gemini...';
-    document.getElementById('loadingSubText').textContent = 'Creazione del codice Roblox Studio per questo modello...';
-    startLoadingTimer();
-    
-    activeAbortController = new AbortController();
-    const luauSystemPrompt = `Sei BloxCraft Script Architect. Per il modello 3D descritto dall'utente, scrivi SOLO il codice Luau completo per Roblox Studio che costruisce questo modello in Workspace usando Parts raggruppate in un Model. Usa i materiali corretti di Roblox (Enum.Material.SmoothPlastic, Metal, Wood, Slate, Neon etc.) e colori realistici. Non includere spiegazioni lunghe - dai solo il blocco codice lua con un breve commento di introduzione. L'utente vedrà il modello 3D reale generato da Meshy AI separatamente.`;
-    
-    try {
-      const luauUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.modelProvider.startsWith('gemini') ? CONFIG.modelProvider : 'gemini-3.8-flash'}:generateContent?key=${CONFIG.apiKey}`;
-      const luauPayload = {
-        contents: [{ role: "user", parts: [{ text: `Crea il codice Luau per: ${userPrompt}` }] }],
-        systemInstruction: { parts: [{ text: luauSystemPrompt }] },
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 }
-      };
-      
-      const res = await fetch(luauUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(luauPayload),
-        signal: activeAbortController.signal
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        const luauText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const luaRegex = /```(?:lua|luau)\n([\s\S]*?)```/i;
-        const luaMatch = luauText.match(luaRegex);
-        const luaCode = luaMatch ? luaMatch[1].trim() : luauText.trim();
-        
-        if (luaCode) {
-          CONFIG.generatedCode = luaCode;
-          CONFIG.commandBarCode = `task.spawn(function()\n${luaCode}\nend)`;
-          const codeElem = document.getElementById('codeBlock');
-          codeElem.textContent = luaCode;
-          Prism.highlightElement(codeElem);
-          detectPlacementAdvice(luaCode);
-        }
-      }
-    } catch(e) {
-      console.warn('Luau generation failed:', e);
-    } finally {
-      stopLoadingTimer();
-      showLoading(false);
-      activeAbortController = null;
-    }
-  }
-  
-  // Step 2: Validate 3D keys
-  if (!has3DKey) {
-    appendBotMessage(`🎯 **Script Luau generato!** Trovi il codice nella scheda "Codice Luau".\n\n⚠️ **Per visualizzare e scaricare la Mesh 3D reale**:\nInserisci la tua chiave gratuita **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis in 1 minuto:**\n1. Vai su [app.meshy.ai](https://app.meshy.ai)\n2. Accedi con Google (hai 200 crediti gratis al mese)\n3. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n4. Incollala nelle impostazioni di BloxCraft AI.`);
-    switchOutputTab('code');
-    saveCurrentProjectState();
+  // Check 3D Key
+  if (!CONFIG.meshyKey) {
+    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali, inserisci la tua chiave gratuita di **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
+    openSettingsModal();
     return;
   }
 
   // Check if user accidentally pasted Tripo key into Meshy field
-  if (CONFIG.meshyKey && CONFIG.meshyKey.startsWith('tsk_')) {
-    appendBotMessage(`⚠️ **Attenzione Chiave API:** Nel campo *Chiave Meshy AI* è stata inserita una chiave che inizia con \`tsk_\` (che appartiene a Tripo3D).\n\nLa chiave di Meshy AI deve iniziare con \`msy_...\`. Ottienila gratuitamente su [app.meshy.ai](https://app.meshy.ai).`);
+  if (CONFIG.meshyKey.startsWith('tsk_')) {
+    appendBotMessage(`⚠️ **Attenzione Chiave API:** Nel campo *Chiave Meshy AI* è presente una chiave Tripo3D (\`tsk_...\`).\nLa chiave di Meshy AI inizia con \`msy_...\`. Creala gratuitamente su [app.meshy.ai](https://app.meshy.ai).`);
+    openSettingsModal();
+    return;
   }
-  
-  appendBotMessage(`🎨 **Avvio generazione mesh 3D reale...** Sto inviando il prompt a ${CONFIG.meshyKey ? 'Meshy AI' : 'Tripo3D'} per creare il modello GLB. Questo richiede circa 1-2 minuti. Puoi seguire il progresso nel viewport 3D.`);
+
+  // Remember prompt for optional scripting later
+  CONFIG.last3DPrompt = userPrompt;
+
+  // DIRECT 3D GENERATION: No Gemini intervention!
+  appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy AI avviata!**\nSto creando il modello 3D in cloud per te. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
   switchOutputTab('3d');
-  
-  if (CONFIG.meshyKey) {
-    await generateMeshyModel(userPrompt);
-  } else {
-    await generateTripoModel(userPrompt);
+
+  await generateMeshyModel(userPrompt);
+}
+
+// Function to add a Luau script specifically tailored to the active 3D model
+async function promptAddScriptToModel() {
+  const modelName = document.getElementById('threeModelTitle')?.textContent || "questo modello 3D";
+  const promptContext = CONFIG.last3DPrompt || "questo modello 3D";
+
+  if (!CONFIG.apiKey) {
+    alert("Per generare uno script Luau con l'IA, inserisci la tua chiave API Google Gemini gratuita nelle Impostazioni!");
+    openSettingsModal();
+    return;
+  }
+
+  const userAction = prompt(
+    `📜 Quale logica Luau vuoi aggiungere a "${modelName}" per Roblox Studio?\n\nEsempi:\n- "Interazione [E] con ProximityPrompt che dà 100 monete"\n- "Tool da raccogliere e impugnare nello zaino con fendente"\n- "Animazione fluida di rotazione e galleggiamento magico"\n- "Trappola: infligge 25 danni e riproduce un suono quando toccata"\n\nDescrivi il comportamento desiderato:`,
+    "Interazione con tasto [E] (ProximityPrompt) che aggiunge 100 monete al giocatore con suono magico"
+  );
+
+  if (!userAction || !userAction.trim()) return;
+
+  showLoading(true);
+  document.getElementById('loadingText').textContent = "Generazione Script Luau per il modello 3D...";
+  document.getElementById('loadingSubText').textContent = `Creazione logiche per: ${modelName}...`;
+  startLoadingTimer();
+
+  try {
+    const fullScriptPrompt = `Ho un modello 3D in Roblox Studio chiamato "${modelName}" (generato con prompt: "${promptContext}"). Scrivi uno script Luau completo, sicuro e moderno per Roblox Studio che implementa questa specifica interazione: "${userAction}".\n\nLinee guida:\n1. Specifica all'inizio il tipo di script (-- TIPO: Script Server / LocalScript) e la posizione consigliata (-- POSIZIONE: Workspace / ServerScriptService).\n2. Assumi che il modello o la parte principale si trovi in Workspace e assegna nomi chiari alle variabili.\n3. Fornisci il codice Luau completo e testato.`;
+    const responseText = await callCloudAI(fullScriptPrompt, 'scripting', null);
+    processAIResponse(responseText);
+    switchOutputTab('code');
+    appendBotMessage(`📜 **Script Luau creato con successo per il tuo modello 3D!**\n\nTrovi il codice pronto nella scheda **"Codice Luau"** con le istruzioni di posizionamento per Roblox Studio. Puoi copiarlo con il pulsante verde per la Command Bar!`);
+  } catch(err) {
+    appendBotMessage(`⚠️ Errore durante la creazione dello script Luau: ${err.message}`);
+  } finally {
+    stopLoadingTimer();
+    showLoading(false);
   }
 }
 
@@ -649,7 +683,7 @@ async function generateMeshyModel(prompt) {
     showMeshyStatus(false);
     stopMeshyTimer();
     
-    appendBotMessage(`✅ **Modello 3D GLB generato con Meshy AI!**\n\nPuoi:\n- 🔄 Ruotarlo a 360° con il mouse nel viewport\n- ⬇️ Scaricarlo come **.GLB** con il pulsante verde per importarlo come **MeshPart** in Roblox Studio\n- 📄 Usare lo **Script Luau** nella scheda Codice per ricreare il modello programmaticamente`);
+    appendBotMessage(`✅ **Modello 3D GLB generato con successo!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo come **MeshPart** in Roblox Studio\n- 📜 **Aggiungere logiche e interazioni Luau** a questo modello cliccando sul pulsante blu **"Aggiungi Script al Modello"** in basso a destra!`);
     saveCurrentProjectState();
     
   } catch(err) {
@@ -877,9 +911,11 @@ async function loadGLBFromUrl(glbUrl) {
         // Store GLB URL for download
         CONFIG.currentGlbUrl = glbUrl;
         
-        // Show download button
+        // Show download and add script buttons
         const dlBtn = document.getElementById('downloadGlbBtn');
         if (dlBtn) dlBtn.classList.remove('hidden');
+        const addScriptBtn = document.getElementById('addScriptToModelBtn');
+        if (addScriptBtn) addScriptBtn.classList.remove('hidden');
         
         resolve();
       },
@@ -923,6 +959,8 @@ async function loadGLBFromUrl(glbUrl) {
             CONFIG.currentGlbUrl = glbUrl;
             const dlBtn = document.getElementById('downloadGlbBtn');
             if (dlBtn) dlBtn.classList.remove('hidden');
+            const addScriptBtn = document.getElementById('addScriptToModelBtn');
+            if (addScriptBtn) addScriptBtn.classList.remove('hidden');
             
             resolve();
           },
@@ -1168,7 +1206,7 @@ function processAIResponse(rawText) {
       console.warn("Parsing 3D manifest fallito:", e);
       parseProceduralLuauTo3D(luaCode);
     }
-  } else if (CONFIG.activeMode === '3d-builder' && luaCode) {
+  } else if (CONFIG.activeMode === '3d-builder' && luaCode && !CONFIG.currentGlbUrl) {
     parseProceduralLuauTo3D(luaCode);
     switchOutputTab('3d');
   }
@@ -2099,9 +2137,13 @@ function clearWorkspace() {
   CONFIG.generatedCode = "";
   CONFIG.commandBarCode = "";
   CONFIG.current3DManifest = null;
+  CONFIG.currentGlbUrl = null;
+  CONFIG.last3DPrompt = "";
   document.getElementById('codeBlock').textContent = "-- Area di lavoro pulita. Inserisci un nuovo prompt!";
   Prism.highlightElement(document.getElementById('codeBlock'));
   document.getElementById('placementBanner').classList.add('hidden');
+  document.getElementById('downloadGlbBtn')?.classList.add('hidden');
+  document.getElementById('addScriptToModelBtn')?.classList.add('hidden');
   saveCurrentProjectState();
 }
 
