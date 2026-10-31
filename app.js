@@ -1,8 +1,20 @@
 // BloxCraft AI - Dedicated Roblox Assistant Core Engine
 
-// Correzione e normalizzazione modello Gemini (Gemini 2.0 Flash è l'ufficiale ad alte prestazioni)
+// Modelli Gemini validi supportati dall'app
+const VALID_GEMINI_MODELS = [
+  'gemini-2.5-pro', 'gemini-2.5-flash',
+  'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'
+];
+
+// Normalizzazione modello salvato: rimuovi versioni obsolete o non riconosciute
 let savedProvider = localStorage.getItem('bloxcraft_model_provider');
-if (!savedProvider || savedProvider.includes('3.8') || savedProvider.includes('gemini-3')) {
+const isObsolete = !savedProvider
+  || savedProvider.includes('3.8')
+  || savedProvider.includes('gemini-3')
+  || savedProvider.includes('gemini-4')
+  || (!savedProvider.startsWith('groq') && !VALID_GEMINI_MODELS.includes(savedProvider));
+
+if (isObsolete) {
   savedProvider = 'gemini-2.0-flash';
   localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
 }
@@ -1830,8 +1842,8 @@ async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = n
   if (CONFIG.modelProvider.startsWith('gemini')) {
     // Normalizza: rimpiazza modelli obsoleti/inesistenti con gemini-2.0-flash
     let model = CONFIG.modelProvider;
-    const obsoleteModels = ['3.8', 'gemini-3', 'gemini-4'];
-    if (obsoleteModels.some(s => model.includes(s))) {
+    const obsolete = ['3.8', 'gemini-3', 'gemini-4'];
+    if (obsolete.some(s => model.includes(s)) || !VALID_GEMINI_MODELS.includes(model)) {
       model = 'gemini-2.0-flash';
       CONFIG.modelProvider = 'gemini-2.0-flash';
       localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
@@ -1876,12 +1888,12 @@ async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = n
     let res = await makeGeminiRequest(model);
 
     // Fallback automatico se il modello specifico restituisce 404 (non trovato)
-    if (!res.ok && res.status === 404 && model !== 'gemini-1.5-flash') {
-      console.warn(`[BloxCraft] Modello ${model} non trovato (404), fallback automatico a gemini-1.5-flash...`);
-      res = await makeGeminiRequest('gemini-1.5-flash');
+    if (!res.ok && res.status === 404 && model !== 'gemini-2.0-flash') {
+      console.warn(`[BloxCraft] Modello ${model} non trovato (404), fallback automatico a gemini-2.0-flash...`);
+      res = await makeGeminiRequest('gemini-2.0-flash');
       if (res.ok) {
-        CONFIG.modelProvider = 'gemini-1.5-flash';
-        localStorage.setItem('bloxcraft_model_provider', 'gemini-1.5-flash');
+        CONFIG.modelProvider = 'gemini-2.0-flash';
+        localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
       }
     }
 
