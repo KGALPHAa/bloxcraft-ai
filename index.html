@@ -77,10 +77,10 @@
       </button>
 
       <!-- Direct MCP Studio Bridge Indicator -->
-      <button onclick="openMcpModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-xs text-purple-300 transition-colors border border-purple-500/30 shadow-sm" title="Server MCP Roblox Studio integrato">
-        <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+      <button id="mcpStatusBtn" onclick="openMcpModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-xs text-purple-300 transition-colors border border-purple-500/30 shadow-sm" title="Server MCP Roblox Studio integrato (Clicca per configurazione e test)">
+        <span id="mcpStatusDot" class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
         <i data-lucide="zap" class="w-3 h-3 text-purple-400"></i>
-        <span class="font-medium">Studio MCP Direct</span>
+        <span id="mcpStatusText" class="font-medium">Studio MCP Direct</span>
       </button>
 
       <div id="apiStatusBadge" class="flex items-center gap-2 text-xs px-3 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 cursor-pointer" onclick="openSettingsModal()">
@@ -318,6 +318,15 @@
             <!-- Studio Action Buttons -->
             <div class="flex items-center gap-2">
               <button 
+                id="injectStudioBtn"
+                onclick="injectScriptToStudio()" 
+                title="Inietta questo script direttamente nel tuo Roblox Studio aperto senza bisogno di copiare!" 
+                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-purple-500/25 transition">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+                <span>⚡ Inietta in Studio (MCP)</span>
+              </button>
+
+              <button 
                 onclick="copyCommandBar()" 
                 title="Copia una singola riga da incollare nella Command Bar di Roblox Studio per creare tutto all'istante!" 
                 class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-medium transition">
@@ -400,6 +409,11 @@
                 </div>
 
                 <div class="pointer-events-auto flex items-center gap-2">
+                  <button id="injectModelToStudioBtn" onclick="injectModelToStudio()" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-purple-500/25 flex items-center gap-1.5 transition" title="Inietta questo modello 3D (con eventuale script allegato) direttamente dentro la Workspace di Roblox Studio via MCP!">
+                    <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+                    <span>⚡ Inietta Modello in Studio (MCP)</span>
+                  </button>
+
                   <button id="downloadGlbBtn" onclick="downloadCurrentGLB()" class="hidden px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 transition" title="Scarica il file .GLB da importare come MeshPart in Roblox Studio!">
                     <i data-lucide="download" class="w-3.5 h-3.5"></i>
                     <span>Scarica .GLB (Reale)</span>
@@ -702,7 +716,7 @@
           </div>
           <div>
             <h3 class="font-bold text-base text-white">Collegamento Diretto Roblox Studio (MCP)</h3>
-            <p class="text-[11px] text-purple-300/80">Implementa script e modelli direttamente dentro Roblox Studio!</p>
+            <p class="text-[11px] text-purple-300/80">Inietta modelli 3D e script direttamente nel tuo gioco aperto!</p>
           </div>
         </div>
         <button onclick="closeMcpModal()" class="text-gray-400 hover:text-white">
@@ -710,37 +724,79 @@
         </button>
       </div>
 
-      <div class="p-5 space-y-4 text-xs text-gray-300 leading-relaxed">
-        <div class="bg-roblox-card border border-purple-500/20 rounded-xl p-3.5 space-y-2">
-          <div class="flex items-center gap-2 font-semibold text-white">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Server MCP Roblox Studio: Attivo nel tuo Ambiente</span>
+      <div class="p-5 space-y-4 text-xs text-gray-300 leading-relaxed max-h-[70vh] overflow-y-auto">
+        <!-- Live Connection Status Card -->
+        <div class="bg-roblox-card border border-purple-500/30 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span id="mcpModalStatusDot" class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"></span>
+              <strong id="mcpModalStatusText" class="text-white text-xs">Verifica connessione Bridge...</strong>
+            </div>
+            <button onclick="checkMcpStatus(true)" class="px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-[11px] font-semibold transition flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+              <span>Test Connessione</span>
+            </button>
           </div>
-          <p class="text-gray-400 text-[11px]">
-            Antigravity dispone del server MCP <strong>Roblox_Studio</strong> con strumenti diretti di scrittura: <code>execute_luau</code>, <code>multi_edit</code> e <code>insert_asset</code>.
-          </p>
+
+          <div class="grid grid-cols-2 gap-2 text-[11px] pt-1">
+            <div class="bg-roblox-surface/80 p-2.5 rounded-lg border border-roblox-border">
+              <div class="text-gray-400">Bridge Locale (Porta 28888):</div>
+              <div id="mcpModalBridgeStatus" class="font-bold text-gray-200 mt-0.5">Controllo in corso...</div>
+            </div>
+            <div class="bg-roblox-surface/80 p-2.5 rounded-lg border border-roblox-border">
+              <div class="text-gray-400">Roblox Studio:</div>
+              <div id="mcpModalStudioStatus" class="font-bold text-gray-200 mt-0.5">Controllo in corso...</div>
+            </div>
+          </div>
+
+          <div id="mcpTestSuccessBanner" class="hidden bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2.5 text-emerald-300 flex items-center justify-between">
+            <span class="flex items-center gap-1.5 font-medium">
+              <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+              <span>Connessione attiva al 100%! Pronto all'iniezione.</span>
+            </span>
+            <button onclick="injectTestScript()" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold transition">
+              Invia Test Script
+            </button>
+          </div>
         </div>
 
+        <!-- 3-Step Setup Guide -->
         <div class="space-y-2.5">
           <div class="font-bold text-white text-xs flex items-center gap-1.5">
-            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
-            <span>Come implementare le cose in automatico:</span>
+            <i data-lucide="sparkles" class="w-4 h-4 text-purple-400"></i>
+            <span>Come usare l'Iniezione Diretta in 3 passi:</span>
           </div>
           <ol class="list-decimal list-inside space-y-2 text-gray-300 pl-1 text-[11px]">
-            <li>Apri <strong>Roblox Studio</strong> sul tuo PC con il Place aperto.</li>
-            <li>Nella chat con Antigravity, puoi semplicemente chiedere:
-              <div class="mt-1 font-mono text-[10px] bg-roblox-dark p-2 rounded-lg border border-roblox-border text-emerald-300">
-                "Implementa lo script del drago nel mio Roblox Studio"
+            <li>
+              <strong>Avvia il Bridge Locale:</strong> Fai doppio clic sul file <code class="bg-roblox-dark px-1.5 py-0.5 rounded border border-roblox-border text-purple-300 font-mono">avvia-bridge-roblox.bat</code> nella cartella del progetto sul tuo PC (nessuna installazione richiesta).
+              <div class="mt-1.5 flex gap-2">
+                <button onclick="downloadBridgeBat()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border border border-roblox-border text-purple-300 text-[10px] font-semibold transition">
+                  <i data-lucide="download" class="w-3 h-3"></i>
+                  <span>Scarica avvia-bridge-roblox.bat</span>
+                </button>
+                <button onclick="downloadStudioPlugin()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border border border-roblox-border text-emerald-300 text-[10px] font-semibold transition">
+                  <i data-lucide="download" class="w-3 h-3"></i>
+                  <span>Scarica Plugin Studio .lua</span>
+                </button>
               </div>
             </li>
-            <li>Antigravity userà lo strumento MCP per inserire il codice Luau direttamente nel tuo gioco aperto, senza bisogno di fare copia e incolla!</li>
-            <li>In alternativa puoi sempre usare il pulsante verde <strong>"Copia x Command Bar"</strong> per inserire qualsiasi cosa con un solo INVIO nella barra comandi di Studio.</li>
+            <li>Apri <strong>Roblox Studio</strong> sul tuo computer con il tuo Place o un progetto vuoto.</li>
+            <li>Dal sito clicca semplicemente su <strong>"⚡ Inietta in Studio (MCP)"</strong> o <strong>"⚡ Inietta Modello in Studio"</strong>. Il codice e i modelli 3D compariranno all'istante dentro Roblox Studio!</li>
           </ol>
+        </div>
+
+        <!-- Command Bar Fallback Note -->
+        <div class="bg-roblox-dark/80 p-3 rounded-xl border border-roblox-border text-[11px] text-gray-400">
+          💡 <strong>Senza Bridge?</strong> Puoi sempre usare il pulsante verde <strong>"Copia x Command Bar"</strong>: copia una singola riga da incollare nella Command Bar di Studio (menu <em>View &rarr; Command Bar</em>) per creare tutto con un INVIO senza configurare nulla!
         </div>
       </div>
 
-      <div class="p-4 border-t border-roblox-border flex justify-end">
-        <button onclick="closeMcpModal()" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition">Ho capito!</button>
+      <div class="p-4 border-t border-roblox-border flex justify-between items-center bg-roblox-surface/50">
+        <button onclick="injectTestScript()" class="px-3.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-semibold transition flex items-center gap-1.5">
+          <i data-lucide="play" class="w-3.5 h-3.5"></i>
+          <span>Test Rapido Iniezione</span>
+        </button>
+        <button onclick="closeMcpModal()" class="px-5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition shadow-md">Ho capito!</button>
       </div>
     </div>
   </div>
