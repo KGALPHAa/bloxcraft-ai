@@ -49,10 +49,10 @@
 
   <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-roblox-dark text-gray-200 min-h-screen flex flex-col font-sans antialiased select-none">
+<body class="bg-roblox-dark text-gray-200 h-screen w-screen overflow-hidden flex flex-col font-sans antialiased select-none">
 
   <!-- Top Navbar -->
-  <header class="h-14 bg-roblox-surface border-b border-roblox-border flex items-center justify-between px-5 sticky top-0 z-50">
+  <header class="h-14 shrink-0 bg-roblox-surface border-b border-roblox-border flex items-center justify-between px-5 z-40">
     <div class="flex items-center gap-3">
       <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/20">
         <i data-lucide="box" class="w-5 h-5 text-white"></i>
@@ -213,173 +213,156 @@
       </div>
     </aside>
 
-    <!-- Center / Main Workspace Area -->
-    <main class="flex-1 flex flex-col bg-roblox-dark overflow-hidden">
+    <!-- Main Workspace Split: Chat on Left, Studio Viewport on Right -->
+    <main class="flex-1 flex overflow-hidden min-h-0 w-full">
       
-      <!-- Top Mode Header -->
-      <div class="h-12 border-b border-roblox-border px-6 flex items-center justify-between bg-roblox-surface/50">
-        <div class="flex items-center gap-2">
-          <span id="modeTitleIcon" class="text-blue-400"><i data-lucide="code-2" class="w-4 h-4"></i></span>
-          <h2 id="modeTitle" class="font-semibold text-sm text-white">Luau Script Architect</h2>
-          <span class="text-gray-500 text-xs">|</span>
-          <span id="modeDescription" class="text-xs text-gray-400">Crea logiche server, client, moduli e networking</span>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button onclick="clearWorkspace()" class="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-roblox-card transition flex items-center gap-1">
-            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+      <!-- Chat Column (Fixed Width, Independent Scroll) -->
+      <section class="w-[430px] lg:w-[480px] shrink-0 h-full border-r border-roblox-border flex flex-col bg-roblox-surface/30 min-h-0 overflow-hidden">
+        
+        <!-- Chat Header with Mode Title and Clear Button -->
+        <div class="h-11 shrink-0 px-4 border-b border-roblox-border flex items-center justify-between bg-roblox-surface/60 backdrop-blur-md">
+          <div class="flex items-center gap-2 truncate">
+            <span id="modeTitleIcon" class="text-blue-400 shrink-0"><i data-lucide="code-2" class="w-4 h-4"></i></span>
+            <h2 id="modeTitle" class="font-semibold text-xs text-white truncate">Luau Script Architect</h2>
+            <span class="text-gray-600 text-xs shrink-0">·</span>
+            <span id="modeDescription" class="text-[11px] text-gray-400 truncate">Logiche Luau per Roblox</span>
+          </div>
+          <button onclick="clearCurrentModeChat()" class="text-[11px] text-gray-400 hover:text-white px-2 py-1 rounded-lg hover:bg-roblox-card transition flex items-center gap-1 shrink-0" title="Pulisci la cronologia di questa chat">
+            <i data-lucide="trash-2" class="w-3 h-3"></i>
             <span>Pulisci</span>
           </button>
         </div>
-      </div>
 
-      <!-- Dual Split Layout: Chat/Prompting on Left, Output/Code on Right -->
-      <div class="flex-1 flex overflow-hidden">
-        
-        <!-- Input & Chat Section (40% width) -->
-        <section class="w-5/12 border-r border-roblox-border flex flex-col bg-roblox-surface/30">
-          
-          <!-- Chat / Prompt History -->
-          <div id="chatHistory" class="flex-1 overflow-y-auto p-4 space-y-4">
-            <!-- Welcome Bot Message -->
-            <div class="flex gap-3 text-sm">
-              <div class="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
-                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-blue-400"></i>
-              </div>
-              <div class="space-y-1">
-                <div class="font-semibold text-white text-xs">BloxCraft AI</div>
-                <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3 rounded-2xl rounded-tl-none text-xs">
-                  Ciao! Sono il tuo assistente dedicato per lo sviluppo su Roblox. Dimmi cosa vuoi creare:
-                  <ul class="list-disc list-inside mt-2 space-y-1 text-gray-400">
-                    <li>Logiche e script completi per il tuo gioco</li>
-                    <li>Modelli 3D procedurali pronti da inserire nella mappa</li>
-                    <li>Interfacce utente (HUD) con visual preview in tempo reale</li>
-                  </ul>
+        <!-- Chat Messages Container (The only scrollable element for chat!) -->
+        <div id="chatHistory" class="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+          <!-- Popolato dinamicamente da JS con welcome bubble o cronologia -->
+        </div>
+
+        <!-- Bottom Fixed Prompt Box (Never scrolls away!) -->
+        <div class="shrink-0 p-3 border-t border-roblox-border bg-roblox-surface/90">
+          <!-- Hidden Reference Image Input -->
+          <input type="file" id="referenceImageInput" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="handleImageFileSelect(event)">
+
+          <!-- Reference Image Preview Chip -->
+          <div id="imageReferencePreview" class="hidden flex items-center justify-between px-3 py-1.5 mb-2 bg-purple-500/10 border border-purple-500/30 rounded-xl text-xs transition-all">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <img id="imageReferenceThumb" src="" alt="Reference" class="w-8 h-8 object-cover rounded-lg border border-purple-500/40 shadow-sm shrink-0" />
+              <div class="truncate">
+                <div class="flex items-center gap-1 font-semibold text-purple-300 text-[11px]">
+                  <i data-lucide="image" class="w-3 h-3 text-purple-400"></i>
+                  <span id="imageReferenceName" class="truncate max-w-[170px]">immagine.png</span>
                 </div>
+                <span class="text-[10px] text-gray-400">Reference pronta per Meshy Image-to-3D</span>
               </div>
             </div>
+            <button onclick="removeReferenceImage()" class="p-1 rounded-lg hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition" title="Rimuovi immagine reference">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
           </div>
 
-          <!-- Bottom Prompt Box -->
-          <div class="p-4 border-t border-roblox-border bg-roblox-surface/80">
-            <!-- Hidden Reference Image Input -->
-            <input type="file" id="referenceImageInput" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="handleImageFileSelect(event)">
+          <div class="relative bg-roblox-card border border-roblox-border focus-within:border-roblox-accent rounded-xl transition-all shadow-inner">
+            <textarea 
+              id="userPromptInput" 
+              rows="3" 
+              placeholder="Descrivi cosa vuoi creare per Roblox..." 
+              class="w-full bg-transparent text-xs text-gray-200 placeholder-gray-500 p-3 pb-9 resize-none focus:outline-none"
+              onkeydown="handleTextareaKeydown(event)"
+            ></textarea>
 
-            <!-- Reference Image Preview Chip -->
-            <div id="imageReferencePreview" class="hidden flex items-center justify-between px-3 py-2 mb-2 bg-purple-500/10 border border-purple-500/30 rounded-xl text-xs transition-all">
-              <div class="flex items-center gap-2.5 overflow-hidden">
-                <img id="imageReferenceThumb" src="" alt="Reference" class="w-10 h-10 object-cover rounded-lg border border-purple-500/40 shadow-sm shrink-0" />
-                <div class="truncate">
-                  <div class="flex items-center gap-1.5 font-semibold text-purple-300">
-                    <i data-lucide="image" class="w-3.5 h-3.5 text-purple-400"></i>
-                    <span id="imageReferenceName" class="truncate max-w-[170px]">immagine_reference.png</span>
-                  </div>
-                  <span class="text-[10px] text-gray-400">Reference pronta per Meshy Image-to-3D</span>
-                </div>
-              </div>
-              <button onclick="removeReferenceImage()" class="p-1 rounded-lg hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition" title="Rimuovi immagine reference">
-                <i data-lucide="x" class="w-4 h-4"></i>
-              </button>
-            </div>
-
-            <div class="relative bg-roblox-card border border-roblox-border focus-within:border-roblox-accent rounded-xl transition-all shadow-inner">
-              <textarea 
-                id="userPromptInput" 
-                rows="3" 
-                placeholder="Descrivi cosa vuoi creare (es. 'Crea un sistema di spade con combo di 3 colpi, hitbox con Raycast e animazione')..." 
-                class="w-full bg-transparent text-sm text-gray-200 placeholder-gray-500 p-3 pb-10 resize-none focus:outline-none"
-                onkeydown="handleTextareaKeydown(event)"
-              ></textarea>
-
-              <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <button 
-                    type="button"
-                    onclick="triggerImageUpload()" 
-                    id="uploadRefImgBtn"
-                    class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border text-gray-300 hover:text-white border border-roblox-border text-xs transition shadow-sm" 
-                    title="Carica un'immagine reference dal tuo computer per generare un modello 3D da immagine!">
-                    <i data-lucide="image-plus" class="w-3.5 h-3.5 text-purple-400"></i>
-                    <span class="text-[11px] font-medium">Carica Immagine</span>
-                  </button>
-                  <span class="text-[11px] text-gray-500 hidden sm:flex items-center gap-1">
-                    <kbd class="px-1.5 py-0.5 rounded bg-roblox-surface text-[10px] text-gray-400 border border-roblox-border">Invio</kbd> per inviare
-                  </span>
-                </div>
+            <div class="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
                 <button 
-                  id="sendPromptBtn"
-                  onclick="submitPrompt()" 
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-roblox-accent hover:bg-roblox-accentHover text-white text-xs font-semibold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                  <i data-lucide="send" class="w-3.5 h-3.5"></i>
-                  <span>Genera</span>
+                  type="button"
+                  onclick="triggerImageUpload()" 
+                  id="uploadRefImgBtn"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-roblox-surface hover:bg-roblox-border text-gray-300 hover:text-white border border-roblox-border text-[11px] transition shadow-sm" 
+                  title="Carica un'immagine reference dal tuo computer per generare un modello 3D">
+                  <i data-lucide="image-plus" class="w-3.5 h-3.5 text-purple-400"></i>
+                  <span>Carica Immagine</span>
                 </button>
-              </div>
-            </div>
-          </div>
-
-        </section>
-
-        <!-- Output & Studio Action Center (60% width) -->
-        <section class="flex-1 flex flex-col bg-roblox-dark overflow-hidden">
-          
-          <!-- Output Tab Bar -->
-          <div class="h-11 border-b border-roblox-border bg-roblox-surface px-4 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <button id="tab-code-btn" onclick="switchOutputTab('code')" class="output-tab active text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-                <i data-lucide="file-code" class="w-3.5 h-3.5 text-blue-400"></i>
-                <span>Codice Luau</span>
-              </button>
-              <button id="tab-3d-btn" onclick="switchOutputTab('3d')" class="output-tab text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-                <i data-lucide="cuboid" class="w-3.5 h-3.5 text-emerald-400"></i>
-                <span class="flex items-center gap-1">
-                  <span>3D Viewport Live</span>
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="text-[10px] text-gray-500 hidden sm:inline">
+                  <kbd class="px-1 py-0.5 rounded bg-roblox-surface text-[9px] text-gray-400 border border-roblox-border">Invio</kbd> invia
                 </span>
-              </button>
-              <button id="tab-preview-btn" onclick="switchOutputTab('preview')" class="output-tab text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-                <i data-lucide="eye" class="w-3.5 h-3.5 text-purple-400"></i>
-                <span>Visual UI</span>
-              </button>
-              <button id="tab-guide-btn" onclick="switchOutputTab('instructions')" class="output-tab text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-                <i data-lucide="help-circle" class="w-3.5 h-3.5 text-blue-400"></i>
-                <span>Istruzioni Studio</span>
-              </button>
-            </div>
-
-            <!-- Studio Action Buttons -->
-            <div class="flex items-center gap-2">
+              </div>
               <button 
-                id="injectStudioBtn"
-                onclick="injectScriptToStudio()" 
-                title="Inietta questo script direttamente nel tuo Roblox Studio aperto senza bisogno di copiare!" 
-                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-purple-500/25 transition">
-                <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
-                <span>⚡ Inietta in Studio (MCP)</span>
-              </button>
-
-              <button 
-                onclick="copyCommandBar()" 
-                title="Copia una singola riga da incollare nella Command Bar di Roblox Studio per creare tutto all'istante!" 
-                class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-medium transition">
-                <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
-                <span>Copia x Command Bar</span>
-              </button>
-
-              <button 
-                onclick="copyCode()" 
-                class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-card hover:bg-roblox-border text-gray-200 border border-roblox-border text-xs font-medium transition">
-                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                <span id="copyBtnText">Copia Codice</span>
-              </button>
-
-              <button 
-                onclick="downloadCode()" 
-                class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-card hover:bg-roblox-border text-gray-200 border border-roblox-border text-xs font-medium transition">
-                <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                <span>Scarica .luau</span>
+                id="sendPromptBtn"
+                onclick="submitPrompt()" 
+                class="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-roblox-accent hover:bg-roblox-accentHover text-white text-xs font-semibold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-lucide="send" class="w-3 h-3"></i>
+                <span>Genera</span>
               </button>
             </div>
           </div>
+        </div>
+
+      </section>
+
+      <!-- Output & Studio Action Center (Remaining Width, Independent Scroll) -->
+      <section class="flex-1 h-full flex flex-col bg-roblox-dark min-h-0 overflow-hidden">
+        
+        <!-- Clean & Spaced Output Tab Bar -->
+        <div class="h-11 shrink-0 border-b border-roblox-border bg-roblox-surface px-4 flex items-center justify-between">
+          <!-- Left: Viewport Tabs -->
+          <div class="flex items-center gap-1.5">
+            <button id="tab-code-btn" onclick="switchOutputTab('code')" class="output-tab active text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <i data-lucide="file-code" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span>Codice Luau</span>
+            </button>
+            <button id="tab-3d-btn" onclick="switchOutputTab('3d')" class="output-tab text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <i data-lucide="cuboid" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span class="flex items-center gap-1">
+                <span>3D Viewport</span>
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              </span>
+            </button>
+            <button id="tab-preview-btn" onclick="switchOutputTab('preview')" class="output-tab text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <i data-lucide="layout" class="w-3.5 h-3.5 text-purple-400"></i>
+              <span>Visual UI</span>
+            </button>
+            <button id="tab-guide-btn" onclick="switchOutputTab('instructions')" class="output-tab text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span>Guida Passo-Passo</span>
+            </button>
+          </div>
+
+          <!-- Right: Action Buttons Group (Clean & Professional) -->
+          <div class="flex items-center gap-2">
+            <!-- Studio Injection Primary Action -->
+            <button 
+              id="injectStudioBtn"
+              onclick="injectActiveOutputToStudio()" 
+              title="Inietta direttamente l'elemento attivo in Roblox Studio via Bridge MCP!" 
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-purple-500/25 transition">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+              <span>⚡ Inietta in Studio</span>
+            </button>
+
+            <!-- Quick Action Dropdown / Buttons -->
+            <button 
+              onclick="copyCommandBar()" 
+              title="Copia riga per la Command Bar di Studio (View -> Command Bar) per creare tutto con un INVIO!" 
+              class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>Copia x Command Bar</span>
+            </button>
+
+            <button 
+              onclick="copyCurrentActiveCode()" 
+              class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-roblox-card hover:bg-roblox-border text-gray-200 border border-roblox-border text-xs font-medium transition"
+              title="Copia il codice Luau">
+              <i data-lucide="copy" class="w-3.5 h-3.5 text-gray-400"></i>
+              <span id="copyBtnText">Copia Codice</span>
+            </button>
+
+            <button 
+              onclick="downloadCurrentActiveOutput()" 
+              class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-roblox-card hover:bg-roblox-border text-gray-200 border border-roblox-border text-xs font-medium transition"
+              title="Scarica il file .luau o .glb">
+              <i data-lucide="download" class="w-3.5 h-3.5 text-gray-400"></i>
+              <span id="downloadBtnText">Scarica</span>
+            </button>
+          </div>
+        </div>
 
           <!-- Placement Advice Banner -->
           <div id="placementBanner" class="hidden bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between text-xs text-blue-300">
