@@ -1468,6 +1468,9 @@ async function callCloudAI(userPrompt, mode, abortSignal) {
 
 // Process and parse AI Response
 function processAIResponse(rawText) {
+  // 0. Pre-extract explanation text (needed below for asset naming)
+  const explanation = rawText.replace(/```(?:lua|luau|html_preview|3d_manifest)[\s\S]*?```/gi, '').trim();
+
   // 1. Extract Lua code blocks
   const luaRegex = /```(?:lua|luau)\n([\s\S]*?)```/i;
   const luaMatch = rawText.match(luaRegex);
@@ -1547,7 +1550,6 @@ function processAIResponse(rawText) {
   }
 
   // 5. Instructions view
-  const explanation = rawText.replace(/```(?:lua|luau|html_preview|3d_manifest)[\s\S]*?```/gi, '').trim();
   CONFIG.instructionsMarkdown = explanation;
   document.getElementById('instructionsContent').innerHTML = marked.parse(explanation);
 
