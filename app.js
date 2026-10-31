@@ -1,29 +1,27 @@
 // BloxCraft AI - Dedicated Roblox Assistant Core Engine
 
-// Modelli Gemini validi supportati dall'app (v1beta)
+// Modelli Gemini attualmente validi sull'API v1beta (aggiornato Ott 2026)
 const VALID_GEMINI_MODELS = [
-  'gemini-2.5-pro', 'gemini-2.5-flash',
-  'gemini-2.0-flash', 'gemini-1.5-pro'
+  'gemini-3.8-flash', 'gemini-3.8-pro', 'gemini-3.8-flash-lite',
+  'gemini-2.5-pro', 'gemini-2.5-flash'
 ];
 
-// Modelli obsoleti/rimossi da v1beta — forzano reset a gemini-2.0-flash
+// Modelli deprecati/rimossi da Google → forzano reset a gemini-3.8-flash
 const OBSOLETE_MODELS = [
-  'gemini-1.5-flash',  // rimosso da v1beta
-  'gemini-3.8-flash', 'gemini-3.8-pro', 'gemini-3.8-flash-lite',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-1.0-pro'
 ];
 
 // Normalizzazione modello salvato
 let savedProvider = localStorage.getItem('bloxcraft_model_provider');
 const isObsolete = !savedProvider
   || OBSOLETE_MODELS.includes(savedProvider)
-  || savedProvider.includes('3.8')
-  || savedProvider.includes('gemini-3')
-  || savedProvider.includes('gemini-4')
   || (!savedProvider.startsWith('groq') && !VALID_GEMINI_MODELS.includes(savedProvider));
 
 if (isObsolete) {
-  savedProvider = 'gemini-2.0-flash';
-  localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
+  savedProvider = 'gemini-3.8-flash';
+  localStorage.setItem('bloxcraft_model_provider', 'gemini-3.8-flash');
 }
 
 const CONFIG = {
@@ -1847,13 +1845,12 @@ async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = n
   const systemInstruction = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.scripting;
 
   if (CONFIG.modelProvider.startsWith('gemini')) {
-    // Normalizza: rimpiazza modelli obsoleti/inesistenti con gemini-2.0-flash
+    // Normalizza: rimpiazza modelli deprecati con gemini-3.8-flash (default attuale Google)
     let model = CONFIG.modelProvider;
-    const obsolete = ['3.8', 'gemini-3', 'gemini-4'];
-    if (obsolete.some(s => model.includes(s)) || !VALID_GEMINI_MODELS.includes(model)) {
-      model = 'gemini-2.0-flash';
-      CONFIG.modelProvider = 'gemini-2.0-flash';
-      localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
+    if (OBSOLETE_MODELS.includes(model) || (!model.startsWith('gemini') && !model.startsWith('groq'))) {
+      model = 'gemini-3.8-flash';
+      CONFIG.modelProvider = 'gemini-3.8-flash';
+      localStorage.setItem('bloxcraft_model_provider', 'gemini-3.8-flash');
     }
 
     console.log(`[BloxCraft] Chiamata a Google Generative AI (${model})${referenceImageData ? ' [VISION+IMAGE]' : ''}...`);
@@ -1895,12 +1892,12 @@ async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = n
     let res = await makeGeminiRequest(model);
 
     // Fallback automatico se il modello specifico restituisce 404 (non trovato)
-    if (!res.ok && res.status === 404 && model !== 'gemini-2.0-flash') {
-      console.warn(`[BloxCraft] Modello ${model} non trovato (404), fallback automatico a gemini-2.0-flash...`);
-      res = await makeGeminiRequest('gemini-2.0-flash');
+    if (!res.ok && res.status === 404 && model !== 'gemini-3.8-flash') {
+      console.warn(`[BloxCraft] Modello ${model} non trovato (404), fallback automatico a gemini-3.8-flash...`);
+      res = await makeGeminiRequest('gemini-3.8-flash');
       if (res.ok) {
-        CONFIG.modelProvider = 'gemini-2.0-flash';
-        localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
+        CONFIG.modelProvider = 'gemini-3.8-flash';
+        localStorage.setItem('bloxcraft_model_provider', 'gemini-3.8-flash');
       }
     }
 
@@ -3079,12 +3076,14 @@ function handleProviderChange() {
 function updateActiveModelTag(provider) {
   const tag = document.getElementById('activeModelTag');
   const labels = {
-    'gemini-2.5-pro':   '⭐ Gemini 2.5 Pro',
-    'gemini-2.5-flash': 'Gemini 2.5 Flash',
-    'gemini-2.0-flash': 'Gemini 2.0 Flash',
-    'gemini-1.5-pro':   'Gemini 1.5 Pro',
-    'gemini-1.5-flash': 'Gemini 1.5 Flash',
-    'groq-qwen-32b':    'Groq Qwen 2.5 Coder'
+    'gemini-3.8-flash':      '⚡ Gemini 3.8 Flash',
+    'gemini-3.8-pro':        '⭐ Gemini 3.8 Pro',
+    'gemini-3.8-flash-lite': 'Gemini 3.8 Flash Lite',
+    'gemini-2.5-pro':        'Gemini 2.5 Pro',
+    'gemini-2.5-flash':      'Gemini 2.5 Flash',
+    'gemini-2.0-flash':      'Gemini 2.0 Flash',
+    'gemini-1.5-pro':        'Gemini 1.5 Pro',
+    'groq-qwen-32b':         'Groq Qwen 2.5 Coder'
   };
   if (tag) tag.textContent = labels[provider] || provider;
 }
