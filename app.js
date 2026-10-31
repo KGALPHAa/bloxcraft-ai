@@ -145,76 +145,110 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize Three.js Engine
   setTimeout(() => {
     initThreeEngine();
-    // Load previously saved project / state
-    restoreCurrentProjectState();
+    // Load previously saved active Roblox Place and its assets
+    restoreCurrentPlace();
   }, 100);
 });
 
 // ==========================================
-// PROJECT STATE & LOCALSTORAGE PERSISTENCE
+// ROBLOX PLACE-CENTRIC ARCHITECTURE & ASSETS
 // ==========================================
 
-function saveCurrentProjectState() {
-  const projectData = {
-    id: CONFIG.currentProjectId,
-    name: getProjectAutoName(),
-    mode: CONFIG.activeMode,
-    chatMessages: CONFIG.chatMessages,
-    generatedCode: CONFIG.generatedCode,
-    current3DManifest: CONFIG.current3DManifest,
-    currentGlbUrl: CONFIG.currentGlbUrl,
-    last3DPrompt: CONFIG.last3DPrompt,
-    instructionsMarkdown: CONFIG.instructionsMarkdown,
-    updatedAt: Date.now()
+let currentPlace = {
+  id: localStorage.getItem('bloxcraft_current_place_id') || 'place_default',
+  name: localStorage.getItem('bloxcraft_current_place_name') || 'Mio Gioco Roblox',
+  updatedAt: Date.now(),
+  models: [],
+  scripts: [],
+  uis: [],
+  chatMessages: []
+};
+
+function saveCurrentPlace() {
+  currentPlace.updatedAt = Date.now();
+  currentPlace.chatMessages = CONFIG.chatMessages;
+
+  // Persist this place
+  localStorage.setItem(`bloxcraft_place_${currentPlace.id}`, JSON.stringify(currentPlace));
+  localStorage.setItem('bloxcraft_current_place_id', currentPlace.id);
+  localStorage.setItem('bloxcraft_current_place_name', currentPlace.name);
+
+  // Update places index
+  let places = getSavedPlacesIndex();
+  const existingIdx = places.findIndex(p => p.id === currentPlace.id);
+  const summary = {
+    id: currentPlace.id,
+    name: currentPlace.name,
+    modelsCount: currentPlace.models.length,
+    scriptsCount: currentPlace.scripts.length,
+    uisCount: currentPlace.uis.length,
+    updatedAt: currentPlace.updatedAt
   };
 
-  localStorage.setItem(`bloxcraft_proj_${CONFIG.currentProjectId}`, JSON.stringify(projectData));
-  localStorage.setItem('bloxcraft_current_project_id', CONFIG.currentProjectId);
-
-  // Update projects index
-  let projectsList = getSavedProjectsIndex();
-  const existingIdx = projectsList.findIndex(p => p.id === CONFIG.currentProjectId);
-  const summaryObj = { 
-    id: projectData.id, 
-    name: projectData.name, 
-    mode: projectData.mode, 
-    hasGlb: !!projectData.currentGlbUrl,
-    updatedAt: projectData.updatedAt 
-  };
-  
   if (existingIdx >= 0) {
-    projectsList[existingIdx] = summaryObj;
+    places[existingIdx] = summary;
   } else {
-    projectsList.unshift(summaryObj);
+    places.unshift(summary);
   }
-  localStorage.setItem('bloxcraft_projects_index', JSON.stringify(projectsList.slice(0, 30)));
+  localStorage.setItem('bloxcraft_places_index', JSON.stringify(places.slice(0, 30)));
+
+  // Update navbar and sidebar
+  updatePlaceUI();
 }
 
-function restoreCurrentProjectState() {
-  const currentId = localStorage.getItem('bloxcraft_current_project_id') || 'project_default';
-  CONFIG.currentProjectId = currentId;
+function restoreCurrentPlace() {
+  const currentId = localStorage.getItem('bloxcraft_current_place_id') || 'place_default';
+  const raw = localStorage.getItem(`bloxcraft_place_${currentId}`);
 
-  const raw = localStorage.getItem(`bloxcraft_proj_${currentId}`);
-  if (!raw) return;
+  if (raw) {
+    try {
+      const data = JSON.parse(raw);
+      currentPlace.id = data.id || currentId;
+      currentPlace.name = data.name || 'Mio Gioco Roblox';
+      currentPlace.models = data.models || [];
+      currentPlace.scripts = data.scripts || [];
+      currentPlace.uis = data.uis || [];
+      currentPlace.chatMessages = data.chatMessages || [];
+      CONFIG.chatMessages = currentPlace.chatMessages;
+    } catch(e) {
+      console.warn("Ripristino place fallito:", e);
+    }
+  } else {
+    // Migration: check if old project exists to import as initial assets
+    const oldRaw = localStorage.getItem(`bloxcraft_proj_project_default`);
+    if (oldRaw) {
+      try {
+        const oldData = JSON.parse(oldRaw);
+        if (oldData.generatedCode) {
+          currentPlace.scripts.push({
+            id: 'scr_' + Date.now(),
+            name: 'Script Principale',
+            code: oldData.generatedCode,
+            placement: 'ServerScriptService',
+            type: 'Script Server',
+            date: Date.now()
+          });
+        }
+        if (oldData.currentGlbUrl) {
+          currentPlace.models.push({
+            id: 'mod_' + Date.now(),
+            name: oldData.name || 'Modello 3D',
+            glbUrl: oldData.currentGlbUrl,
+            prompt: oldData.last3DPrompt || '',
+            date: Date.now()
+          });
+        }
+      } catch(e) {}
+    }
+    saveCurrentPlace();
+  }
 
-  try {
-    const data = JSON.parse(raw);
-    CONFIG.activeMode = data.mode || 'scripting';
-    CONFIG.generatedCode = data.generatedCode || '';
-    CONFIG.current3DManifest = data.current3DManifest || null;
-    CONFIG.currentGlbUrl = data.currentGlbUrl || null;
-    CONFIG.last3DPrompt = data.last3DPrompt || '';
-    CONFIG.instructionsMarkdown = data.instructionsMarkdown || '';
-    CONFIG.chatMessages = data.chatMessages || [];
+  updatePlaceUI();
 
-    // Switch mode
-    switchMode(CONFIG.activeMode);
-
-    // Replay chat messages in DOM
-    const chatContainer = document.getElementById('chatHistory');
+  // Replay chat messages in DOM
+  const chatContainer = document.getElementById('chatHistory');
+  if (chatContainer) {
     chatContainer.innerHTML = '';
-    
-    // Add initial welcome if empty
     if (CONFIG.chatMessages.length === 0) {
       addInitialWelcomeBubble();
     } else {
@@ -223,169 +257,320 @@ function restoreCurrentProjectState() {
         else renderBotBubbleDOM(msg.text);
       });
     }
+  }
 
-    // Restore Code
-    if (CONFIG.generatedCode) {
-      CONFIG.commandBarCode = `task.spawn(function()\n${CONFIG.generatedCode}\nend)`;
-      const codeElem = document.getElementById('codeBlock');
-      codeElem.textContent = CONFIG.generatedCode;
-      Prism.highlightElement(codeElem);
-      detectPlacementAdvice(CONFIG.generatedCode);
-    }
+  // If place has models, load the most recent one
+  if (currentPlace.models.length > 0) {
+    const latestModel = currentPlace.models[0];
+    loadPlaceModel(latestModel.id, false);
+  }
 
-    // Restore 3D Model
-    if (CONFIG.currentGlbUrl) {
-      loadGLBFromUrl(CONFIG.currentGlbUrl);
-      document.getElementById('downloadGlbBtn')?.classList.remove('hidden');
-      document.getElementById('addScriptToModelBtn')?.classList.remove('hidden');
-    } else if (CONFIG.current3DManifest) {
-      render3DModel(CONFIG.current3DManifest);
-    }
-
-    // Restore Instructions
-    if (CONFIG.instructionsMarkdown) {
-      document.getElementById('instructionsContent').innerHTML = marked.parse(CONFIG.instructionsMarkdown);
-    }
-
-  } catch (err) {
-    console.error("Errore ripristino stato salvato:", err);
+  // If place has scripts, load the most recent one
+  if (currentPlace.scripts.length > 0) {
+    const latestScript = currentPlace.scripts[0];
+    loadPlaceScript(latestScript.id, false);
   }
 }
 
-function getSavedProjectsIndex() {
+function updatePlaceUI() {
+  const navName = document.getElementById('currentPlaceNavName');
+  if (navName) navName.textContent = currentPlace.name;
+
+  const countEl = document.getElementById('placeAssetsCount');
+  if (countEl) {
+    countEl.textContent = `${currentPlace.models.length} Modelli · ${currentPlace.scripts.length} Script`;
+  }
+
+  renderPlaceAssetsList();
+}
+
+function renderPlaceAssetsList() {
+  const container = document.getElementById('placeAssetsContainer');
+  if (!container) return;
+
+  const totalAssets = currentPlace.models.length + currentPlace.scripts.length + currentPlace.uis.length;
+  if (totalAssets === 0) {
+    container.innerHTML = `
+      <div class="text-[11px] text-gray-500 text-center py-4 px-2 bg-roblox-card/40 rounded-xl border border-roblox-border/50">
+        Nessun asset ancora in questo place.<br>Genera un modello 3D o uno script per iniziare!
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+
+  // 3D Models in this Place
+  currentPlace.models.forEach(m => {
+    html += `
+      <div class="group flex items-center justify-between p-2 rounded-xl bg-roblox-card/70 hover:bg-roblox-card border border-roblox-border hover:border-emerald-500/40 transition cursor-pointer" onclick="loadPlaceModel('${m.id}', true)">
+        <div class="flex items-center gap-2 truncate">
+          <i data-lucide="cuboid" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+          <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(m.name)}</span>
+        </div>
+        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); deletePlaceAsset('model', '${m.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina modello">
+            <i data-lucide="trash-2" class="w-3 h-3"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  // Luau Scripts in this Place
+  currentPlace.scripts.forEach(s => {
+    html += `
+      <div class="group flex items-center justify-between p-2 rounded-xl bg-roblox-card/70 hover:bg-roblox-card border border-roblox-border hover:border-blue-500/40 transition cursor-pointer" onclick="loadPlaceScript('${s.id}', true)">
+        <div class="flex items-center gap-2 truncate">
+          <i data-lucide="code-2" class="w-3.5 h-3.5 text-blue-400 shrink-0"></i>
+          <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(s.name)}</span>
+        </div>
+        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); deletePlaceAsset('script', '${s.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina script">
+            <i data-lucide="trash-2" class="w-3 h-3"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  // UIs in this Place
+  currentPlace.uis.forEach(u => {
+    html += `
+      <div class="group flex items-center justify-between p-2 rounded-xl bg-roblox-card/70 hover:bg-roblox-card border border-roblox-border hover:border-purple-500/40 transition cursor-pointer" onclick="loadPlaceUI('${u.id}', true)">
+        <div class="flex items-center gap-2 truncate">
+          <i data-lucide="layout" class="w-3.5 h-3.5 text-purple-400 shrink-0"></i>
+          <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(u.name)}</span>
+        </div>
+        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); deletePlaceAsset('ui', '${u.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina UI">
+            <i data-lucide="trash-2" class="w-3 h-3"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  lucide.createIcons();
+}
+
+function loadPlaceModel(modelId, switchTab = true) {
+  const model = currentPlace.models.find(m => m.id === modelId);
+  if (!model) return;
+
+  CONFIG.currentGlbUrl = model.glbUrl;
+  CONFIG.last3DPrompt = model.prompt;
+  document.getElementById('threeModelTitle').textContent = model.name;
+
+  if (model.glbUrl) {
+    loadGLBFromUrl(model.glbUrl);
+    document.getElementById('downloadGlbBtn')?.classList.remove('hidden');
+    document.getElementById('addScriptToModelBtn')?.classList.remove('hidden');
+  }
+
+  if (switchTab) {
+    switchOutputTab('3d');
+  }
+}
+
+function loadPlaceScript(scriptId, switchTab = true) {
+  const s = currentPlace.scripts.find(item => item.id === scriptId);
+  if (!s) return;
+
+  CONFIG.generatedCode = s.code;
+  CONFIG.commandBarCode = `task.spawn(function()\n${s.code}\nend)`;
+
+  const codeElem = document.getElementById('codeBlock');
+  codeElem.textContent = s.code;
+  Prism.highlightElement(codeElem);
+  detectPlacementAdvice(s.code);
+
+  if (switchTab) {
+    switchOutputTab('code');
+  }
+}
+
+function loadPlaceUI(uiId, switchTab = true) {
+  const u = currentPlace.uis.find(item => item.id === uiId);
+  if (!u) return;
+
+  if (u.html) renderUIPreview(u.html);
+  if (u.code) {
+    CONFIG.generatedCode = u.code;
+    const codeElem = document.getElementById('codeBlock');
+    codeElem.textContent = u.code;
+    Prism.highlightElement(codeElem);
+  }
+
+  if (switchTab) {
+    switchOutputTab('preview');
+  }
+}
+
+function deletePlaceAsset(type, id) {
+  if (type === 'model') {
+    currentPlace.models = currentPlace.models.filter(m => m.id !== id);
+    if (CONFIG.currentGlbUrl && currentPlace.models.every(m => m.glbUrl !== CONFIG.currentGlbUrl)) {
+      clearWorkspace();
+    }
+  } else if (type === 'script') {
+    currentPlace.scripts = currentPlace.scripts.filter(s => s.id !== id);
+  } else if (type === 'ui') {
+    currentPlace.uis = currentPlace.uis.filter(u => u.id !== id);
+  }
+  saveCurrentPlace();
+}
+
+function getSavedPlacesIndex() {
   try {
-    return JSON.parse(localStorage.getItem('bloxcraft_projects_index')) || [];
+    return JSON.parse(localStorage.getItem('bloxcraft_places_index')) || [
+      { id: 'place_default', name: 'Mio Gioco Roblox', modelsCount: 0, scriptsCount: 0, uisCount: 0, updatedAt: Date.now() }
+    ];
   } catch {
     return [];
   }
 }
 
-function getProjectAutoName() {
-  if (CONFIG.current3DManifest && CONFIG.current3DManifest.name) {
-    return CONFIG.current3DManifest.name;
-  }
-  const firstUserMsg = CONFIG.chatMessages.find(m => m.sender === 'user');
-  if (firstUserMsg) {
-    return firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
-  }
-  return "Nuovo Progetto";
-}
+function openPlacesModal() {
+  const container = document.getElementById('placesListContainer');
+  const places = getSavedPlacesIndex();
 
-function createNewProject() {
-  CONFIG.currentProjectId = 'proj_' + Date.now();
-  CONFIG.generatedCode = '';
-  CONFIG.commandBarCode = '';
-  CONFIG.current3DManifest = null;
-  CONFIG.currentGlbUrl = null;
-  CONFIG.last3DPrompt = '';
-  CONFIG.instructionsMarkdown = '';
-  CONFIG.chatMessages = [];
-
-  localStorage.setItem('bloxcraft_current_project_id', CONFIG.currentProjectId);
-
-  // Clear UI
-  const chatContainer = document.getElementById('chatHistory');
-  chatContainer.innerHTML = '';
-  addInitialWelcomeBubble();
-
-  clearWorkspace();
-  
-  if (threeCurrentModelGroup) {
-    while (threeCurrentModelGroup.children.length > 0) {
-      threeCurrentModelGroup.remove(threeCurrentModelGroup.children[0]);
-    }
-  }
-  document.getElementById('threePlaceholder').classList.remove('hidden');
-  document.getElementById('threeModelTitle').textContent = "Roblox 3D Studio Engine";
-  document.getElementById('threePartCount').textContent = "0 Parti";
-  document.getElementById('downloadGlbBtn')?.classList.add('hidden');
-  document.getElementById('addScriptToModelBtn')?.classList.add('hidden');
-
-  closeProjectsModal();
-}
-
-function openProjectsModal() {
-  const container = document.getElementById('projectsListContainer');
-  const projects = getSavedProjectsIndex();
-
-  if (projects.length === 0) {
-    container.innerHTML = `
-      <div class="text-center py-8 text-gray-500 text-xs">
-        <i data-lucide="folder-open" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-        Nessun progetto salvato ancora. Ogni volta che generi qualcosa, viene salvato automaticamente qui!
-      </div>
-    `;
-  } else {
-    container.innerHTML = projects.map(p => {
-      let badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">Luau Script</span>';
-      let icon = 'code-2';
-      let iconColor = 'text-blue-400';
-      let iconBg = 'bg-blue-500/10 border-blue-500/20';
-
-      if (p.mode === '3d-builder' || p.hasGlb) {
-        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Mesh 3D (Meshy)</span>';
-        icon = 'cuboid';
-        iconColor = 'text-emerald-400';
-        iconBg = 'bg-emerald-500/10 border-emerald-500/20';
-      } else if (p.mode === 'ui-designer') {
-        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">GUI HUD</span>';
-        icon = 'layout';
-        iconColor = 'text-purple-400';
-        iconBg = 'bg-purple-500/10 border-purple-500/20';
-      } else if (p.mode === 'debugger') {
-        badgeHtml = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">Debugger</span>';
-        icon = 'bug';
-        iconColor = 'text-rose-400';
-        iconBg = 'bg-rose-500/10 border-rose-500/20';
-      }
-
-      return `
-      <div class="p-3 rounded-xl bg-roblox-card border border-roblox-border flex items-center justify-between hover:border-roblox-accent/50 transition">
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-lg ${iconBg} border flex items-center justify-center shrink-0">
-            <i data-lucide="${icon}" class="w-4 h-4 ${iconColor}"></i>
+  container.innerHTML = places.map(p => `
+    <div class="p-3.5 rounded-xl bg-roblox-card border border-roblox-border flex items-center justify-between hover:border-emerald-500/50 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+          <i data-lucide="gamepad-2" class="w-5 h-5 text-emerald-400"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h4 class="font-bold text-white text-sm">${escapeHtml(p.name)}</h4>
+            ${p.id === currentPlace.id ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Attivo</span>' : ''}
           </div>
-          <div>
-            <div class="flex items-center gap-2 mb-0.5">
-              <h4 class="font-bold text-white text-xs">${escapeHtml(p.name)}</h4>
-              ${badgeHtml}
-            </div>
-            <span class="text-[10px] text-gray-500">${new Date(p.updatedAt).toLocaleDateString()} ${new Date(p.updatedAt).toLocaleTimeString()}</span>
+          <div class="text-[11px] text-gray-400 font-mono mt-0.5">
+            📦 ${p.modelsCount || 0} Modelli · 📜 ${p.scriptsCount || 0} Script · 🖥️ ${p.uisCount || 0} UI
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <button onclick="loadProject('${p.id}')" class="px-3 py-1 rounded-lg bg-roblox-accent hover:bg-roblox-accentHover text-white text-xs font-semibold shadow-sm transition">
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="renamePlacePrompt('${p.id}')" class="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-roblox-border transition" title="Rinomina Place">
+          <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+        </button>
+        ${p.id !== currentPlace.id ? `
+          <button onclick="switchPlace('${p.id}')" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition">
             Apri
           </button>
-          <button onclick="deleteProject('${p.id}')" class="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition" title="Elimina progetto">
+          <button onclick="deletePlace('${p.id}')" class="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition" title="Elimina Place">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
           </button>
-        </div>
+        ` : `
+          <span class="text-xs text-emerald-400 font-semibold px-2">In Uso</span>
+        `}
       </div>
-      `;
-    }).join('');
-  }
+    </div>
+  `).join('');
 
   lucide.createIcons();
-  document.getElementById('projectsModal').classList.remove('hidden');
+  document.getElementById('placesModal').classList.remove('hidden');
 }
 
-function closeProjectsModal() {
-  document.getElementById('projectsModal').classList.add('hidden');
+function closePlacesModal() {
+  document.getElementById('placesModal').classList.add('hidden');
 }
 
-function loadProject(projectId) {
-  CONFIG.currentProjectId = projectId;
-  localStorage.setItem('bloxcraft_current_project_id', projectId);
-  restoreCurrentProjectState();
-  closeProjectsModal();
+function switchPlace(placeId) {
+  saveCurrentPlace();
+  localStorage.setItem('bloxcraft_current_place_id', placeId);
+  currentPlace.id = placeId;
+  restoreCurrentPlace();
+  closePlacesModal();
 }
 
-function deleteProject(projectId) {
-  localStorage.removeItem(`bloxcraft_proj_${projectId}`);
-  let projectsList = getSavedProjectsIndex().filter(p => p.id !== projectId);
-  localStorage.setItem('bloxcraft_projects_index', JSON.stringify(projectsList));
-  openProjectsModal();
+function createNewPlacePrompt() {
+  const name = prompt("Nome del nuovo Place / Gioco Roblox (es. 'Sword RPG', 'Sci-Fi Tycoon', 'Horror Mansion'):");
+  if (!name || !name.trim()) return;
+
+  saveCurrentPlace();
+
+  const newId = 'place_' + Date.now();
+  currentPlace = {
+    id: newId,
+    name: name.trim(),
+    updatedAt: Date.now(),
+    models: [],
+    scripts: [],
+    uis: [],
+    chatMessages: []
+  };
+
+  CONFIG.chatMessages = [];
+  CONFIG.generatedCode = '';
+  CONFIG.commandBarCode = '';
+  CONFIG.currentGlbUrl = null;
+  CONFIG.last3DPrompt = '';
+
+  saveCurrentPlace();
+  restoreCurrentPlace();
+  closePlacesModal();
+
+  appendBotMessage(`🎮 **Benvenuto nel Place "${currentPlace.name}"!**\nTutti i modelli 3D e gli script che creerai da adesso saranno salvati insieme all'interno di questo place.`);
+}
+
+function renamePlacePrompt(placeId) {
+  const places = getSavedPlacesIndex();
+  const target = places.find(p => p.id === placeId);
+  if (!target) return;
+
+  const newName = prompt("Nuovo nome per questo Place:", target.name);
+  if (!newName || !newName.trim()) return;
+
+  if (currentPlace.id === placeId) {
+    currentPlace.name = newName.trim();
+    saveCurrentPlace();
+  } else {
+    const raw = localStorage.getItem(`bloxcraft_place_${placeId}`);
+    if (raw) {
+      const data = JSON.parse(raw);
+      data.name = newName.trim();
+      localStorage.setItem(`bloxcraft_place_${placeId}`, JSON.stringify(data));
+    }
+    const idx = places.findIndex(p => p.id === placeId);
+    if (idx >= 0) {
+      places[idx].name = newName.trim();
+      localStorage.setItem('bloxcraft_places_index', JSON.stringify(places));
+    }
+  }
+
+  openPlacesModal();
+}
+
+function deletePlace(placeId) {
+  if (placeId === currentPlace.id) return;
+  if (!confirm("Sei sicuro di voler eliminare questo Place e tutti i suoi asset?")) return;
+
+  localStorage.removeItem(`bloxcraft_place_${placeId}`);
+  let places = getSavedPlacesIndex().filter(p => p.id !== placeId);
+  localStorage.setItem('bloxcraft_places_index', JSON.stringify(places));
+  openPlacesModal();
+}
+
+function promptNewAsset() {
+  const choice = prompt("Cosa vuoi creare per questo Place?\n\n1 = Modello 3D (Meshy AI)\n2 = Script Luau (Gemini)\n3 = Interfaccia GUI (HUD)\n\nDigita 1, 2 o 3:");
+  if (choice === '1') {
+    switchMode('3d-builder');
+  } else if (choice === '2') {
+    switchMode('scripting');
+  } else if (choice === '3') {
+    switchMode('ui-designer');
+  }
+}
+
+function openMcpModal() {
+  document.getElementById('mcpModal').classList.remove('hidden');
+}
+
+function closeMcpModal() {
+  document.getElementById('mcpModal').classList.add('hidden');
 }
 
 function addInitialWelcomeBubble() {
@@ -683,8 +868,18 @@ async function generateMeshyModel(prompt) {
     showMeshyStatus(false);
     stopMeshyTimer();
     
-    appendBotMessage(`✅ **Modello 3D GLB generato con successo!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo come **MeshPart** in Roblox Studio\n- 📜 **Aggiungere logiche e interazioni Luau** a questo modello cliccando sul pulsante blu **"Aggiungi Script al Modello"** in basso a destra!`);
-    saveCurrentProjectState();
+    // Save as asset in current Roblox Place
+    const modelAsset = {
+      id: 'mod_' + Date.now(),
+      name: prompt.length > 28 ? prompt.substring(0, 28) + '...' : prompt,
+      glbUrl: glbUrl,
+      prompt: prompt,
+      date: Date.now()
+    };
+    currentPlace.models.unshift(modelAsset);
+    saveCurrentPlace();
+
+    appendBotMessage(`✅ **Modello 3D GLB salvato nel place "${currentPlace.name}"!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo in Roblox Studio\n- 📜 **Aggiungere logiche Luau** a questo modello cliccando sul pulsante blu **"Aggiungi Script al Modello"** in basso a destra!\n- 📁 Lo ritrovi sempre salvato nella colonna a sinistra in **Asset del Place**.`);
     
   } catch(err) {
     stopMeshyTimer();
@@ -1183,13 +1378,28 @@ function processAIResponse(rawText) {
 
   CONFIG.generatedCode = luaCode;
   
-  // 2. Prepare Command Bar Code
+  // 2. Prepare Command Bar Code & Save as Asset in Place
   if (luaCode) {
     CONFIG.commandBarCode = `task.spawn(function()\n${luaCode}\nend)`;
     const codeElem = document.getElementById('codeBlock');
     codeElem.textContent = luaCode;
     Prism.highlightElement(codeElem);
     detectPlacementAdvice(luaCode);
+
+    // Save as script asset in active Roblox Place
+    const sType = document.getElementById('scriptTypeTag')?.textContent || 'Script Server';
+    const sPlacement = document.getElementById('placementText')?.textContent || 'ServerScriptService';
+    const firstLine = explanation ? explanation.split('\n')[0].replace(/^[#* \t-]+/, '').trim().substring(0, 28) : '';
+    const scriptAsset = {
+      id: 'scr_' + Date.now(),
+      name: firstLine || 'Script Luau',
+      code: luaCode,
+      placement: sPlacement,
+      type: sType,
+      date: Date.now()
+    };
+    currentPlace.scripts.unshift(scriptAsset);
+    saveCurrentPlace();
   }
 
   // 3. Extract 3D Manifest (if present or in 3D builder mode)
@@ -1216,6 +1426,14 @@ function processAIResponse(rawText) {
   const htmlMatch = rawText.match(htmlRegex);
   if (htmlMatch) {
     renderUIPreview(htmlMatch[1]);
+    currentPlace.uis.unshift({
+      id: 'ui_' + Date.now(),
+      name: 'Interfaccia GUI',
+      code: luaCode,
+      html: htmlMatch[1],
+      date: Date.now()
+    });
+    saveCurrentPlace();
     if (CONFIG.activeMode === 'ui-designer') switchOutputTab('preview');
   } else if (CONFIG.activeMode === 'ui-designer') {
     renderFallbackUIPreview();
@@ -1229,14 +1447,14 @@ function processAIResponse(rawText) {
 
   // 6. Append Bot message to chat
   const previewSnippet = explanation.substring(0, 280) + (explanation.length > 280 ? '...' : '');
-  appendBotMessage(previewSnippet || "Ho generato la soluzione richiesta. Esplora il modello 3D, il codice o l'interfaccia nel pannello a destra!");
+  appendBotMessage(previewSnippet || "Ho generato la soluzione richiesta per il tuo place. Esplora il modello 3D, il codice o l'interfaccia nel pannello a destra!");
 
   if (CONFIG.activeMode === 'scripting') {
     switchOutputTab('code');
   }
 
-  // Save full state!
-  saveCurrentProjectState();
+  // Save place state
+  saveCurrentPlace();
 }
 
 // ==========================================
