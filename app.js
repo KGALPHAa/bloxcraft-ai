@@ -1044,9 +1044,9 @@ async function handle3DBuilderPrompt(userPrompt) {
     }
 
     if (refImg) {
-      appendBotMessage(`🧠 **Studio Nativo — Analisi Immagine con Gemini Vision**\nSto analizzando l'immagine reference \`${refImgName || 'immagine'}\` per riprodurre proporzioni, colori e dettagli nel modello 3D procedurale Roblox...`);
+      appendBotMessage(`🧠 **Studio Nativo — Analisi Immagine con Gemini Vision**\nSto analizzando l'immagine reference \`${refImgName || 'immagine'}\` con **⭐ Gemini 2.5 Pro** (il più capace). Se i crediti giornalieri sono esauriti, passo automaticamente al modello successivo.`);
     } else {
-      appendBotMessage(`⚡ **Studio Nativo — Generazione 3D Procedurale**\nSto generando il modello 3D con Gemini AI... Creerò sia il manifest WebGL per la preview che il codice Luau completo per Roblox Studio.`);
+      appendBotMessage(`⚡ **Studio Nativo — Generazione 3D Procedurale**\nSto generando il modello 3D con **⭐ Gemini 2.5 Pro**. Se i crediti sono esauriti, passo automaticamente al modello successivo.`);
     }
 
     // Pulisci riferimento immagine dopo uso
@@ -1065,7 +1065,8 @@ async function handle3DBuilderPrompt(userPrompt) {
     }, 150000);
 
     try {
-      const responseText = await callCloudAI(userPrompt, '3d-builder', activeAbortController.signal, refImg);
+      // Usa la catena fallback: 2.5 Pro → 3.8 Pro → 3.8 Flash → 2.5 Flash
+      const responseText = await call3DAIWithFallback(userPrompt, activeAbortController.signal, refImg);
       clearTimeout(timeoutId);
       removeTypingIndicator(typingId);
 
@@ -1838,6 +1839,82 @@ function stopLoadingTimer() {
     clearInterval(loadingTimerInterval);
     loadingTimerInterval = null;
   }
+}
+
+// ==========================================
+// 3D BUILDER — CATENA FALLBACK MODELLI
+// Ordine: 2.5 Pro → 3.8 Pro → 3.8 Flash → 2.5 Flash
+// Si abbassa automaticamente se quota esaurito (429) o modello non trovato (404)
+// ==========================================
+const MODELS_3D_CHAIN = [
+  { id: 'gemini-2.5-pro',   label: '⭐ Gemini 2.5 Pro' },
+  { id: 'gemini-3.8-pro',   label: '🔥 Gemini 3.8 Pro' },
+  { id: 'gemini-3.8-flash', label: '⚡ Gemini 3.8 Flash' },
+  { id: 'gemini-2.5-flash', label: '🌀 Gemini 2.5 Flash' }
+];
+
+async function call3DAIWithFallback(userPrompt, abortSignal, referenceImageData = null) {
+  const systemInstruction = SYSTEM_PROMPTS['3d-builder'];
+  let lastError = null;
+
+  const buildParts = (imgData) => {
+    const parts = [];
+    if (imgData) {
+      const m = imgData.match(/^data:([a-zA-Z0-9/+]+);base64,(.+)$/);
+      if (m) parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+    }
+    parts.push({ text: userPrompt });
+    return parts;
+  };
+
+  for (const modelEntry of MODELS_3D_CHAIN) {
+    const modelId = modelEntry.id;
+    console.log(`[BloxCraft 3D] Tentativo con ${modelEntry.label}...`);
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${CONFIG.apiKey}`;
+      const payload = {
+        contents: [{ role: 'user', parts: buildParts(referenceImageData) }],
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        generationConfig: { temperature: 0.5, maxOutputTokens: 8192 }
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: abortSignal
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          if (modelEntry.id !== MODELS_3D_CHAIN[0].id) {
+            appendBotMessage(`ℹ️ **Passaggio automatico**: ${MODELS_3D_CHAIN[0].label} ha esaurito i crediti. Generazione completata con **${modelEntry.label}**.`);
+          }
+          return text;
+        }
+        throw new Error('Risposta vuota dal modello.');
+      }
+
+      // 429 = quota esaurita | 404 = non disponibile → prova il prossimo
+      if (res.status === 429 || res.status === 404 || res.status === 400) {
+        const errData = await res.json().catch(() => ({}));
+        lastError = new Error(`${modelEntry.label}: ${errData.error?.message || 'HTTP ' + res.status}`);
+        console.warn(`[BloxCraft 3D] Scendo al modello successivo. Motivo: ${lastError.message}`);
+        continue;
+      }
+
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error?.message || `Errore HTTP ${res.status}`);
+
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      lastError = err;
+      if (!err.message?.includes('Failed to fetch')) continue;
+      throw err;
+    }
+  }
+  throw new Error(`Tutti i modelli 3D hanno fallito. Ultimo errore: ${lastError?.message || 'Sconosciuto'}`);
 }
 
 // Call Cloud AI (Gemini or Groq) — supporta input multimodale (immagini reference)
