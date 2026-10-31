@@ -68,9 +68,19 @@
 
     <!-- Right Controls -->
     <div class="flex items-center gap-3">
-      <button onclick="openProjectsModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-roblox-card hover:bg-roblox-border text-xs text-gray-300 transition-colors border border-roblox-border">
-        <i data-lucide="folder-clock" class="w-3.5 h-3.5 text-emerald-400"></i>
-        <span>Progetti Salvati</span>
+      <!-- Current Place Selector -->
+      <button onclick="openPlacesModal()" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-roblox-card hover:bg-roblox-border text-xs text-gray-200 transition-colors border border-roblox-border shadow-sm" title="Gestisci e passa da un Place / Gioco Roblox all'altro">
+        <i data-lucide="gamepad-2" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span class="text-gray-400">Place:</span>
+        <strong id="currentPlaceNavName" class="text-white max-w-[130px] truncate">Mio Gioco Roblox</strong>
+        <i data-lucide="chevron-down" class="w-3 h-3 text-gray-500"></i>
+      </button>
+
+      <!-- Direct MCP Studio Bridge Indicator -->
+      <button onclick="openMcpModal()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-xs text-purple-300 transition-colors border border-purple-500/30 shadow-sm" title="Server MCP Roblox Studio integrato">
+        <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+        <i data-lucide="zap" class="w-3 h-3 text-purple-400"></i>
+        <span class="font-medium">Studio MCP Direct</span>
       </button>
 
       <div id="apiStatusBadge" class="flex items-center gap-2 text-xs px-3 py-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 text-yellow-400 cursor-pointer" onclick="openSettingsModal()">
@@ -94,8 +104,8 @@
   <div class="flex-1 flex overflow-hidden">
     
     <!-- Left Navigation / Mode Sidebar -->
-    <aside class="w-64 bg-roblox-surface border-r border-roblox-border flex flex-col justify-between p-3 select-none">
-      <div class="space-y-6">
+    <aside class="w-64 bg-roblox-surface border-r border-roblox-border flex flex-col justify-between p-3 select-none overflow-y-auto">
+      <div class="space-y-5">
         <!-- Modes -->
         <div>
           <label class="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3">Modalità Assistente</label>
@@ -134,31 +144,54 @@
           </div>
         </div>
 
+        <!-- Roblox Place Assets Explorer -->
+        <div class="border-t border-roblox-border pt-3">
+          <div class="flex items-center justify-between px-2 mb-2">
+            <div>
+              <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <i data-lucide="folder-tree" class="w-3.5 h-3.5"></i>
+                Asset del Place
+              </span>
+              <div id="placeAssetsCount" class="text-[10px] text-gray-400 font-mono mt-0.5">0 Modelli · 0 Script</div>
+            </div>
+            <button onclick="promptNewAsset()" title="Aggiungi nuovo elemento a questo place" class="p-1 rounded-lg hover:bg-roblox-card text-emerald-400 hover:text-emerald-300 transition border border-emerald-500/20">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- Dynamic Place Assets Container -->
+          <div id="placeAssetsContainer" class="space-y-1 max-h-48 overflow-y-auto px-1 pr-1.5">
+            <div class="text-[11px] text-gray-500 text-center py-4 px-2 bg-roblox-card/40 rounded-xl border border-roblox-border/50">
+              Nessun asset ancora in questo place.<br>Genera un modello 3D o uno script per iniziare!
+            </div>
+          </div>
+        </div>
+
         <!-- Quick Presets -->
-        <div>
+        <div class="border-t border-roblox-border pt-3">
           <label class="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3">Preset Rapidi</label>
           <div class="mt-2 space-y-1">
-            <button onclick="applyPreset('combat')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('combat')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="swords" class="w-3.5 h-3.5 text-orange-400"></i>
               <span>Sistema Combattimento & Danni</span>
             </button>
-            <button onclick="applyPreset('tycoon')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('tycoon')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="coins" class="w-3.5 h-3.5 text-yellow-400"></i>
               <span>Tycoon Dropper & Conveyor</span>
             </button>
-            <button onclick="applyPreset('leaderstats')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('leaderstats')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="database" class="w-3.5 h-3.5 text-blue-400"></i>
               <span>DataStore2 / Leaderstats Cash</span>
             </button>
-            <button onclick="applyPreset('swordInStone')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('swordInStone')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="sparkles" class="w-3.5 h-3.5 text-cyan-400"></i>
               <span>3D: Spada nella Roccia (Magica)</span>
             </button>
-            <button onclick="applyPreset('castle3d')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('castle3d')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="castle" class="w-3.5 h-3.5 text-emerald-400"></i>
               <span>3D: Castello & Torri Generativo</span>
             </button>
-            <button onclick="applyPreset('hudui')" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
+            <button onclick="applyPreset('hudui')" class="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-300 hover:text-white hover:bg-roblox-card transition text-left">
               <i data-lucide="heart-pulse" class="w-3.5 h-3.5 text-purple-400"></i>
               <span>UI: Barra Salute & Stamina Sci-Fi</span>
             </button>
@@ -627,32 +660,87 @@
     </div>
   </div>
 
-  <!-- Saved Projects Modal -->
-  <div id="projectsModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-roblox-surface border border-roblox-border rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl select-none">
+  <!-- Saved Roblox Places / Projects Modal -->
+  <div id="placesModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-roblox-surface border border-roblox-border rounded-2xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl select-none">
       <div class="flex items-center justify-between p-5 border-b border-roblox-border">
-        <div class="flex items-center gap-2">
-          <i data-lucide="folder-clock" class="w-5 h-5 text-emerald-400"></i>
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+            <i data-lucide="gamepad-2" class="w-4 h-4 text-emerald-400"></i>
+          </div>
           <div>
-            <h3 class="font-bold text-base text-white">I Tuoi Progetti & Creazioni Salvate</h3>
-            <p class="text-[11px] text-gray-400">Tutti i modelli, script e chat rimangono memorizzati nel tuo browser</p>
+            <h3 class="font-bold text-base text-white">I Tuoi Place & Giochi Roblox</h3>
+            <p class="text-[11px] text-gray-400">Ogni Place raggruppa tutti i suoi modelli 3D, script e UI separatamente</p>
           </div>
         </div>
-        <button onclick="closeProjectsModal()" class="text-gray-400 hover:text-white">
+        <button onclick="closePlacesModal()" class="text-gray-400 hover:text-white">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <div class="p-5 overflow-y-auto flex-1 space-y-3" id="projectsListContainer">
-        <!-- Rendered dynamically -->
+      <div class="p-5 overflow-y-auto flex-1 space-y-3" id="placesListContainer">
+        <!-- Rendered dynamically by app.js -->
       </div>
 
-      <div class="p-4 border-t border-roblox-border flex justify-between items-center">
-        <button onclick="createNewProject()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition">
+      <div class="p-4 border-t border-roblox-border flex justify-between items-center bg-roblox-surface/50">
+        <button onclick="createNewPlacePrompt()" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition">
           <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-          <span>Nuovo Progetto Vuoto</span>
+          <span>Nuovo Place / Gioco</span>
         </button>
-        <button onclick="closeProjectsModal()" class="px-4 py-1.5 rounded-xl bg-roblox-card hover:bg-roblox-border text-gray-300 text-xs font-medium transition">Chiudi</button>
+        <button onclick="closePlacesModal()" class="px-4 py-1.5 rounded-xl bg-roblox-card hover:bg-roblox-border text-gray-300 text-xs font-medium transition">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Studio MCP Direct Modal -->
+  <div id="mcpModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-roblox-surface border border-roblox-border rounded-2xl w-full max-w-lg shadow-2xl select-none">
+      <div class="flex items-center justify-between p-5 border-b border-roblox-border">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+            <i data-lucide="zap" class="w-4 h-4 text-purple-400"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-white">Collegamento Diretto Roblox Studio (MCP)</h3>
+            <p class="text-[11px] text-purple-300/80">Implementa script e modelli direttamente dentro Roblox Studio!</p>
+          </div>
+        </div>
+        <button onclick="closeMcpModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs text-gray-300 leading-relaxed">
+        <div class="bg-roblox-card border border-purple-500/20 rounded-xl p-3.5 space-y-2">
+          <div class="flex items-center gap-2 font-semibold text-white">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Server MCP Roblox Studio: Attivo nel tuo Ambiente</span>
+          </div>
+          <p class="text-gray-400 text-[11px]">
+            Antigravity dispone del server MCP <strong>Roblox_Studio</strong> con strumenti diretti di scrittura: <code>execute_luau</code>, <code>multi_edit</code> e <code>insert_asset</code>.
+          </p>
+        </div>
+
+        <div class="space-y-2.5">
+          <div class="font-bold text-white text-xs flex items-center gap-1.5">
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+            <span>Come implementare le cose in automatico:</span>
+          </div>
+          <ol class="list-decimal list-inside space-y-2 text-gray-300 pl-1 text-[11px]">
+            <li>Apri <strong>Roblox Studio</strong> sul tuo PC con il Place aperto.</li>
+            <li>Nella chat con Antigravity, puoi semplicemente chiedere:
+              <div class="mt-1 font-mono text-[10px] bg-roblox-dark p-2 rounded-lg border border-roblox-border text-emerald-300">
+                "Implementa lo script del drago nel mio Roblox Studio"
+              </div>
+            </li>
+            <li>Antigravity userà lo strumento MCP per inserire il codice Luau direttamente nel tuo gioco aperto, senza bisogno di fare copia e incolla!</li>
+            <li>In alternativa puoi sempre usare il pulsante verde <strong>"Copia x Command Bar"</strong> per inserire qualsiasi cosa con un solo INVIO nella barra comandi di Studio.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-roblox-border flex justify-end">
+        <button onclick="closeMcpModal()" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition">Ho capito!</button>
       </div>
     </div>
   </div>
