@@ -21,6 +21,8 @@ const CONFIG = {
   currentGlbUrl: null,        // URL of last GLB loaded from Meshy/Tripo
   last3DPrompt: '',           // Description of current 3D model
   currentGlbBlob: null,       // Blob for download
+  referenceImage: null,       // Base64 data URI per Image-to-3D Meshy
+  referenceImageName: '',     // Nome file reference
   chatMessages: [],
   currentProjectId: localStorage.getItem('bloxcraft_current_project_id') || 'project_default'
 };
@@ -101,8 +103,8 @@ const MODE_INFO = {
     title: '3D Builder — Meshy AI',
     icon: 'cuboid',
     color: 'text-emerald-400',
-    desc: 'Generatore puro di Mesh 3D GLB con Meshy AI (puoi aggiungere script Luau al termine)',
-    placeholder: "Descrivi il modello 3D da generare (es. 'Un drago del tempo viola con orologi che gli fluttuano attorno')..."
+    desc: 'Generatore di Mesh 3D GLB con Meshy AI (Text-to-3D o Image-to-3D da immagine reference)',
+    placeholder: "Descrivi il modello 3D oppure carica un'immagine reference con 'Carica Immagine'..."
   },
   'ui-designer': {
     title: 'GUI & HUD Designer',
@@ -150,6 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Verifica iniziale e monitoraggio automatico Bridge Roblox Studio MCP
     checkMcpStatus(false);
     setInterval(() => checkMcpStatus(false), 5000);
+    // Supporto Drag & Drop e Incolla (CTRL+V) per Immagini Reference
+    initImageDropSupport();
   }, 100);
 });
 
@@ -628,6 +632,16 @@ function switchMode(modeKey) {
   iconSpan.innerHTML = `<i data-lucide="${info.icon}" class="w-4 h-4"></i>`;
   lucide.createIcons();
 
+  const uploadBtn = document.getElementById('uploadRefImgBtn');
+  if (uploadBtn) {
+    if (modeKey === '3d-builder') {
+      uploadBtn.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 border border-purple-500/50 text-xs transition shadow-sm";
+      uploadBtn.title = "Carica un'immagine reference per generare il modello 3D (Meshy Image-to-3D)";
+    } else {
+      uploadBtn.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border text-gray-300 hover:text-white border border-roblox-border text-xs transition shadow-sm";
+    }
+  }
+
   if (modeKey === '3d-builder') {
     switchOutputTab('3d');
   } else if (modeKey === 'ui-designer') {
@@ -717,7 +731,13 @@ function cancelActivePrompt() {
 // Main Submit Prompt Function
 async function submitPrompt() {
   const input = document.getElementById('userPromptInput');
-  const prompt = input.value.trim();
+  let prompt = input.value.trim();
+
+  // Se l'utente ha caricato un'immagine di riferimento, il testo può essere opzionale
+  if (!prompt && CONFIG.referenceImage) {
+    prompt = "Modello 3D da Immagine Reference (" + (CONFIG.referenceImageName || "immagine") + ")";
+  }
+
   if (!prompt) return;
 
   if (!CONFIG.apiKey && CONFIG.activeMode !== '3d-builder') {
@@ -726,7 +746,14 @@ async function submitPrompt() {
     return;
   }
 
-  appendUserMessage(prompt);
+  const hasReference = !!CONFIG.referenceImage;
+  const refName = CONFIG.referenceImageName;
+
+  if (hasReference) {
+    appendUserMessage(`🖼️ **[Reference Immagine: ${refName || 'immagine'}]**\n${prompt}`);
+  } else {
+    appendUserMessage(prompt);
+  }
   input.value = '';
 
   if (CONFIG.activeMode === '3d-builder') {
@@ -776,12 +803,21 @@ async function handle3DBuilderPrompt(userPrompt) {
 
   // Remember prompt for optional scripting later
   CONFIG.last3DPrompt = userPrompt;
+  const refImg = CONFIG.referenceImage;
+  const refImgName = CONFIG.referenceImageName;
 
   // DIRECT 3D GENERATION: No Gemini intervention!
-  appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy AI avviata!**\nSto creando il modello 3D in cloud per te. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
+  if (refImg) {
+    appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy Image-to-3D avviata!**\nReference: \`${refImgName || 'immagine'}\`\nSto trasformando l'immagine in un modello 3D GLB texturizzato. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
+  } else {
+    appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy AI avviata!**\nSto creando il modello 3D in cloud per te. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
+  }
+  
+  // Pulisci l'immagine dal box di input dopo l'invio
+  removeReferenceImage();
   switchOutputTab('3d');
 
-  await generateMeshyModel(userPrompt);
+  await generateMeshyModel(userPrompt, refImg);
 }
 
 // Function to add a Luau script specifically tailored to the active 3D model
@@ -821,50 +857,87 @@ async function promptAddScriptToModel() {
   }
 }
 
-async function generateMeshyModel(prompt) {
-  showMeshyStatus(true, 'Invio richiesta a Meshy AI...');
+async function generateMeshyModel(prompt, referenceImage = null) {
+  const isImageMode = !!referenceImage;
+  showMeshyStatus(true, isImageMode ? 'Invio immagine reference a Meshy Image-to-3D...' : 'Invio richiesta a Meshy AI...');
   setMeshyStep(1);
   
   try {
-    const createRes = await fetch('https://api.meshy.ai/openapi/v2/text-to-3d', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.meshyKey}`
-      },
-      body: JSON.stringify({
-        mode: 'preview',
-        prompt: prompt,
-        art_style: 'realistic',
-        negative_prompt: 'low quality, blurry, bad geometry',
-        ai_model: 'meshy-4'
-      })
-    });
-    
-    if (!createRes.ok) {
-      const errData = await createRes.json().catch(() => ({}));
-      const errMsg = errData.message || `Errore HTTP ${createRes.status}: ${createRes.statusText}`;
-      
-      if (createRes.status === 401) {
-        throw new Error(`Chiave Meshy non valida (${errMsg}). Verifica la chiave su app.meshy.ai (deve iniziare con 'msy_')`);
-      } else if (createRes.status === 402 || createRes.status === 429) {
-        throw new Error(`Crediti Meshy esauriti o limite raggiunto (${errMsg}).`);
-      } else {
-        throw new Error(errMsg);
+    let taskId;
+    let pollEndpoint;
+
+    if (isImageMode) {
+      // Meshy Image-to-3D API
+      const createRes = await fetch('https://api.meshy.ai/openapi/v1/image-to-3d', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.meshyKey}`
+        },
+        body: JSON.stringify({
+          image_url: referenceImage,
+          enable_pbr: true,
+          surface_mode: 'hard'
+        })
+      });
+
+      if (!createRes.ok) {
+        const errData = await createRes.json().catch(() => ({}));
+        const errMsg = errData.message || `Errore HTTP ${createRes.status}: ${createRes.statusText}`;
+        if (createRes.status === 401) {
+          throw new Error(`Chiave Meshy non valida (${errMsg}). Verifica la chiave su app.meshy.ai (deve iniziare con 'msy_')`);
+        } else if (createRes.status === 402 || createRes.status === 429) {
+          throw new Error(`Crediti Meshy esauriti o limite raggiunto (${errMsg}).`);
+        } else {
+          throw new Error(errMsg);
+        }
       }
+
+      const createData = await createRes.json();
+      taskId = createData.result;
+      pollEndpoint = `https://api.meshy.ai/openapi/v1/image-to-3d/${taskId}`;
+    } else {
+      // Meshy Text-to-3D API
+      const createRes = await fetch('https://api.meshy.ai/openapi/v2/text-to-3d', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.meshyKey}`
+        },
+        body: JSON.stringify({
+          mode: 'preview',
+          prompt: prompt,
+          art_style: 'realistic',
+          negative_prompt: 'low quality, blurry, bad geometry',
+          ai_model: 'meshy-4'
+        })
+      });
+      
+      if (!createRes.ok) {
+        const errData = await createRes.json().catch(() => ({}));
+        const errMsg = errData.message || `Errore HTTP ${createRes.status}: ${createRes.statusText}`;
+        if (createRes.status === 401) {
+          throw new Error(`Chiave Meshy non valida (${errMsg}). Verifica la chiave su app.meshy.ai (deve iniziare con 'msy_')`);
+        } else if (createRes.status === 402 || createRes.status === 429) {
+          throw new Error(`Crediti Meshy esauriti o limite raggiunto (${errMsg}).`);
+        } else {
+          throw new Error(errMsg);
+        }
+      }
+
+      const createData = await createRes.json();
+      taskId = createData.result;
+      pollEndpoint = `https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`;
     }
-    
-    const createData = await createRes.json();
-    const taskId = createData.result;
     
     if (!taskId) throw new Error('Meshy non ha restituito un task ID valido.');
     
-    showMeshyStatus(true, 'Generazione geometria in corso...');
+    showMeshyStatus(true, isImageMode ? 'Elaborazione geometria 3D da reference...' : 'Generazione geometria in corso...');
     setMeshyStep(1, 'active');
     
     // Step 2: Poll until SUCCEEDED
     startMeshyTimer();
-    const glbUrl = await pollMeshyTask(taskId, 'preview');
+    const glbUrl = await pollMeshyTask(taskId, pollEndpoint);
     
     if (!glbUrl) throw new Error('Meshy non ha restituito un URL GLB valido.');
     
@@ -881,7 +954,7 @@ async function generateMeshyModel(prompt) {
     // Save as asset in current Roblox Place
     const modelAsset = {
       id: 'mod_' + Date.now(),
-      name: prompt.length > 28 ? prompt.substring(0, 28) + '...' : prompt,
+      name: (prompt && prompt.length > 28) ? prompt.substring(0, 28) + '...' : (prompt || 'Modello 3D da Reference'),
       glbUrl: glbUrl,
       prompt: prompt,
       date: Date.now()
@@ -889,7 +962,7 @@ async function generateMeshyModel(prompt) {
     currentPlace.models.unshift(modelAsset);
     saveCurrentPlace();
 
-    appendBotMessage(`✅ **Modello 3D GLB salvato nel place "${currentPlace.name}"!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo in Roblox Studio\n- 📜 **Aggiungere logiche Luau** a questo modello cliccando sul pulsante blu **"Aggiungi Script al Modello"** in basso a destra!\n- 📁 Lo ritrovi sempre salvato nella colonna a sinistra in **Asset del Place**.`);
+    appendBotMessage(`✅ **Modello 3D GLB ${isImageMode ? 'generato da immagine reference' : ''} salvato nel place "${currentPlace.name}"!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo in Roblox Studio\n- ⚡ **Iniettarlo direttamente in Roblox Studio** con il pulsante **"⚡ Inietta Modello in Studio (MCP)"**\n- 📜 **Aggiungere logiche Luau** a questo modello cliccando su **"Aggiungi Script al Modello"**\n- 📁 Lo ritrovi sempre salvato nella colonna a sinistra in **Asset del Place**.`);
     
   } catch(err) {
     stopMeshyTimer();
@@ -900,7 +973,8 @@ async function generateMeshyModel(prompt) {
   }
 }
 
-async function pollMeshyTask(taskId, mode) {
+async function pollMeshyTask(taskId, customEndpoint = null) {
+  const endpoint = customEndpoint || `https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`;
   return new Promise((resolve, reject) => {
     let attempts = 0;
     const maxAttempts = 120; // 6 min max (3s interval)
@@ -914,7 +988,7 @@ async function pollMeshyTask(taskId, mode) {
       }
       
       try {
-        const pollRes = await fetch(`https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`, {
+        const pollRes = await fetch(endpoint, {
           headers: { 'Authorization': `Bearer ${CONFIG.meshyKey}` }
         });
         
@@ -2802,4 +2876,114 @@ end)
   a.href = URL.createObjectURL(blob);
   a.download = 'BloxCraft_Sync_Plugin.lua';
   a.click();
+}
+
+// ==========================================
+// IMAGE REFERENCE MANAGEMENT (MESHY IMAGE-TO-3D)
+// ==========================================
+
+function triggerImageUpload() {
+  const fileInput = document.getElementById('referenceImageInput');
+  if (fileInput) fileInput.click();
+}
+
+function handleImageFileSelect(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  processReferenceImageFile(file);
+}
+
+function processReferenceImageFile(file) {
+  if (!file.type.startsWith('image/')) {
+    alert("Seleziona un file immagine valido (PNG, JPG o WebP)!");
+    return;
+  }
+  
+  if (file.size > 20 * 1024 * 1024) {
+    alert("L'immagine è troppo grande. La dimensione massima consentita per Meshy è 20 MB.");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    CONFIG.referenceImage = dataUrl;
+    CONFIG.referenceImageName = file.name;
+
+    // Show preview chip in UI
+    const previewBox = document.getElementById('imageReferencePreview');
+    const thumb = document.getElementById('imageReferenceThumb');
+    const nameEl = document.getElementById('imageReferenceName');
+    
+    if (previewBox) previewBox.classList.remove('hidden');
+    if (thumb) thumb.src = dataUrl;
+    if (nameEl) nameEl.textContent = file.name;
+
+    // If not already in 3D Builder mode, auto-switch to 3D Builder
+    if (CONFIG.activeMode !== '3d-builder') {
+      switchMode('3d-builder');
+    }
+
+    lucide.createIcons();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeReferenceImage() {
+  CONFIG.referenceImage = null;
+  CONFIG.referenceImageName = '';
+  const previewBox = document.getElementById('imageReferencePreview');
+  const fileInput = document.getElementById('referenceImageInput');
+  if (previewBox) previewBox.classList.add('hidden');
+  if (fileInput) fileInput.value = '';
+}
+
+function initImageDropSupport() {
+  const promptBox = document.getElementById('userPromptInput');
+  if (promptBox) {
+    promptBox.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      promptBox.classList.add('border-purple-400');
+    });
+    promptBox.addEventListener('dragleave', () => {
+      promptBox.classList.remove('border-purple-400');
+    });
+    promptBox.addEventListener('drop', (e) => {
+      e.preventDefault();
+      promptBox.classList.remove('border-purple-400');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        processReferenceImageFile(e.dataTransfer.files[0]);
+      }
+    });
+    promptBox.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) processReferenceImageFile(blob);
+          break;
+        }
+      }
+    });
+  }
+
+  // Also support drag & drop onto the 3D viewport canvas
+  const threeContainer = document.getElementById('threeCanvasContainer');
+  if (threeContainer) {
+    threeContainer.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      threeContainer.classList.add('ring-2', 'ring-purple-400');
+    });
+    threeContainer.addEventListener('dragleave', () => {
+      threeContainer.classList.remove('ring-2', 'ring-purple-400');
+    });
+    threeContainer.addEventListener('drop', (e) => {
+      e.preventDefault();
+      threeContainer.classList.remove('ring-2', 'ring-purple-400');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        processReferenceImageFile(e.dataTransfer.files[0]);
+      }
+    });
+  }
 }
