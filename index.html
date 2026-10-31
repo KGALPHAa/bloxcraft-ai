@@ -498,8 +498,26 @@
             </div>
 
             <!-- Tab 2: Visual Preview Viewport (HTML/CSS UI simulation) -->
-            <div id="previewView" class="hidden w-full h-full overflow-auto p-6 bg-roblox-dark flex items-center justify-center">
-              <div class="w-[500px] h-[340px] bg-slate-900 border-2 border-roblox-border rounded-2xl relative shadow-2xl overflow-hidden flex flex-col justify-between p-4" id="uiSimulatorScreen">
+            <div id="previewView" class="hidden w-full h-full relative overflow-auto p-6 bg-roblox-dark flex flex-col items-center justify-center">
+              <!-- Top Toolbar for Active GUI -->
+              <div class="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
+                <div class="flex items-center gap-2 bg-roblox-surface/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-roblox-border text-xs text-gray-300">
+                  <i data-lucide="layout" class="w-3.5 h-3.5 text-purple-400"></i>
+                  <span id="activeGuiTitle" class="font-medium text-white">Preview Interfaccia GUI</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button id="addScriptToGuiBtn" onclick="promptAddScriptToActiveUI()" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-500/20 flex items-center gap-1.5 transition" title="Aggiungi logiche LocalScript (Tween, click, tasti) per questa GUI">
+                    <i data-lucide="file-code" class="w-3.5 h-3.5 text-yellow-300"></i>
+                    <span>Aggiungi Script a questa GUI</span>
+                  </button>
+                  <button onclick="injectCurrentUIToStudio()" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 transition" title="Inietta questa interfaccia in StarterGui">
+                    <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+                    <span>Inietta GUI in Studio (MCP)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="w-[500px] h-[340px] bg-slate-900 border-2 border-roblox-border rounded-2xl relative shadow-2xl overflow-hidden flex flex-col justify-between p-4 mt-8" id="uiSimulatorScreen">
                 <div class="text-[10px] font-mono text-gray-500 uppercase tracking-widest flex justify-between items-center border-b border-gray-800 pb-2">
                   <span>Roblox Player Viewport Preview</span>
                   <span class="text-emerald-400 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Live UI Mock</span>
@@ -575,9 +593,10 @@
         <div>
           <label class="block font-semibold text-gray-200 mb-1">🧠 Modello Scripting Luau</label>
           <select id="modelProviderSelect" onchange="handleProviderChange()" class="w-full bg-roblox-card border border-roblox-border rounded-xl p-2.5 text-gray-200 focus:outline-none focus:border-roblox-accent">
-            <option value="gemini-3.8-flash" selected>Google Gemini 3.8 Flash (Consigliato, 1.500 req/die gratis)</option>
-            <option value="gemini-3.8-flash-lite">Google Gemini 3.8 Flash Lite (Ultra Veloce)</option>
-            <option value="gemini-3.8-pro">Google Gemini 3.8 Pro (Ragionamento Profondo)</option>
+            <option value="gemini-2.0-flash" selected>Google Gemini 2.0 Flash (Consigliato, 1.500 req/die gratis)</option>
+            <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+            <option value="gemini-1.5-flash">Google Gemini 1.5 Flash (Stabile)</option>
+            <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Ragionamento Profondo)</option>
             <option value="groq-qwen-32b">Groq: Qwen 2.5 Coder 32B (Open Source)</option>
           </select>
         </div>
@@ -829,6 +848,57 @@
           <span>Test Rapido Iniezione</span>
         </button>
         <button onclick="closeMcpModal()" class="px-5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition shadow-md">Ho capito!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Aggiungi Script per Modello 3D o GUI -->
+  <div id="addScriptModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-roblox-surface border border-roblox-border rounded-2xl w-full max-w-lg shadow-2xl select-none overflow-hidden">
+      <div class="flex items-center justify-between p-5 border-b border-roblox-border bg-roblox-card/50">
+        <div class="flex items-center gap-2.5">
+          <div id="addScriptModalIcon" class="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+            <i data-lucide="sparkles" class="w-4 h-4 text-blue-400"></i>
+          </div>
+          <div>
+            <h3 id="addScriptModalTitle" class="text-sm font-bold text-white">Aggiungi Script Luau</h3>
+            <p id="addScriptModalSub" class="text-[11px] text-gray-400">Seleziona un comportamento o descrivi cosa deve fare l'asset in Studio</p>
+          </div>
+        </div>
+        <button onclick="closeAddScriptModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs text-gray-300">
+        <!-- Preset rapidi specifici per Modello o GUI -->
+        <div>
+          <label class="block font-semibold text-gray-200 mb-2">⚡ Scegli un'interazione rapida:</label>
+          <div id="addScriptPresetsGrid" class="grid grid-cols-2 gap-2">
+            <!-- Popolato dinamicamente da JS per Modello o per GUI -->
+          </div>
+        </div>
+
+        <!-- Descrizione personalizzata -->
+        <div>
+          <label class="block font-semibold text-gray-200 mb-1">✍️ Oppure descrivi il comportamento su misura:</label>
+          <textarea id="addScriptCustomInput" rows="3" class="w-full bg-roblox-card border border-roblox-border rounded-xl p-3 text-gray-200 focus:outline-none focus:border-roblox-accent placeholder-gray-500 resize-none text-xs" placeholder="Es. Quando il giocatore interagisce col tasto [E], riproduci un suono magico e aggiungi 100 monete alle sue leaderstats..."></textarea>
+        </div>
+
+        <div class="bg-roblox-card/70 border border-roblox-border rounded-xl p-3 flex items-start gap-2.5 text-[11px] text-gray-400">
+          <i data-lucide="info" class="w-4 h-4 text-blue-400 shrink-0 mt-0.5"></i>
+          <div>
+            Lo script verrà generato specificamente per questo asset, salvato nel tuo Place e pronto per essere <strong>iniettato direttamente in Roblox Studio (MCP)</strong> o copiato nella Command Bar.
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-roblox-border flex justify-end gap-2 bg-roblox-surface/50">
+        <button onclick="closeAddScriptModal()" class="px-4 py-2 rounded-xl bg-roblox-card hover:bg-roblox-border text-gray-300 text-xs font-semibold transition">Annulla</button>
+        <button id="addScriptSubmitBtn" onclick="confirmGenerateScriptForAsset()" class="px-5 py-2 rounded-xl bg-roblox-accent hover:bg-roblox-accentHover text-white text-xs font-semibold transition shadow-md shadow-blue-500/20 flex items-center gap-1.5">
+          <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+          <span>Genera Script Luau</span>
+        </button>
       </div>
     </div>
   </div>
