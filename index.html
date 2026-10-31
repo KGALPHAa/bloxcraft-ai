@@ -388,12 +388,26 @@
               <div id="threeCanvasContainer" class="w-full h-full"></div>
 
               <!-- Top Floating Controls / Stats -->
-              <div class="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-                <div class="bg-roblox-surface/90 border border-roblox-border backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2 pointer-events-auto shadow-lg">
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span id="threeModelTitle" class="text-xs font-bold text-white">Roblox 3D Studio Engine</span>
-                  <span class="text-gray-500 text-xs">|</span>
-                  <span id="threePartCount" class="text-[11px] font-mono text-emerald-400">0 Parti</span>
+              <div class="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
+                <div class="flex items-center gap-2 pointer-events-auto">
+                  <div class="bg-roblox-surface/90 border border-roblox-border backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-lg">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="threeModelTitle" class="text-xs font-bold text-white">Roblox 3D Studio Engine</span>
+                    <span class="text-gray-500 text-xs">|</span>
+                    <span id="threePartCount" class="text-[11px] font-mono text-emerald-400">0 Parti</span>
+                  </div>
+
+                  <!-- 3D Engine Selector Pill (Illimitato vs Meshy) -->
+                  <div class="bg-roblox-surface/90 border border-roblox-border backdrop-blur-md rounded-xl p-0.5 flex items-center shadow-lg text-[11px]">
+                    <button id="engine-native-btn" onclick="set3DEngine('native')" class="px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" title="Motore 3D Nativo: Illimitato, 100% gratuito, genera modelli procedurali Luau direttamente per Studio con Gemini Vision">
+                      <i data-lucide="zap" class="w-3.5 h-3.5 text-yellow-300"></i>
+                      <span>Studio Nativo (Illimitato)</span>
+                    </button>
+                    <button id="engine-meshy-btn" onclick="set3DEngine('meshy')" class="px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition text-gray-400 hover:text-white" title="Meshy AI: genera mesh 3D GLB reali da testo o foto (richiede crediti Meshy)">
+                      <i data-lucide="cuboid" class="w-3.5 h-3.5 text-purple-400"></i>
+                      <span>Meshy AI (.GLB)</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div class="flex items-center gap-2 pointer-events-auto">
@@ -473,10 +487,13 @@
                 <div class="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-3">
                   <i data-lucide="cuboid" class="w-8 h-8 text-emerald-400"></i>
                 </div>
-                <h4 class="text-sm font-bold text-white mb-1">Motore 3D Mesh — Meshy AI</h4>
-                <p class="text-xs text-gray-400 max-w-sm">Passa alla modalità <strong>3D Builder</strong>: descrivi il modello a parole oppure <strong>carica un'immagine reference</strong> con il pulsante <em>Carica Immagine</em> per generare un modello 3D GLB fedele alla tua immagine!</p>
-                <p class="text-[11px] text-purple-400/90 mt-2 font-medium">📷 Supporta Text-to-3D e Image-to-3D (trascina o incolla con CTRL+V)</p>
-                <p class="text-[11px] text-yellow-400/80 mt-1 max-w-xs">⚙️ Ricordati di aggiungere la chiave Meshy AI gratuita nelle Impostazioni API.</p>
+                <h4 class="text-sm font-bold text-white mb-1">Motore 3D BloxCraft per Roblox Studio</h4>
+                <p class="text-xs text-gray-400 max-w-md">Scegli in alto tra <strong>Studio Nativo</strong> (illimitato e gratuito al 100%, con Gemini Vision che ricrea qualsiasi oggetto/foto) oppure <strong>Meshy AI</strong> (.GLB scultoreo).</p>
+                <div class="mt-3 flex items-center gap-2 text-[11px]">
+                  <span class="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg">⚡ Illimitato & Senza Crediti</span>
+                  <span class="bg-purple-500/10 border border-purple-500/20 text-purple-300 px-2.5 py-1 rounded-lg">📷 Supporta Foto Reference</span>
+                  <span class="bg-blue-500/10 border border-blue-500/20 text-blue-300 px-2.5 py-1 rounded-lg">⚡ Iniezione Diretta in Studio</span>
+                </div>
               </div>
             </div>
 
@@ -576,10 +593,11 @@
         <div>
           <label class="block font-semibold text-gray-200 mb-1">🧠 Modello Scripting Luau</label>
           <select id="modelProviderSelect" onchange="handleProviderChange()" class="w-full bg-roblox-card border border-roblox-border rounded-xl p-2.5 text-gray-200 focus:outline-none focus:border-roblox-accent">
-            <option value="gemini-2.0-flash" selected>Google Gemini 2.0 Flash (Consigliato, 1.500 req/die gratis)</option>
-            <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
-            <option value="gemini-1.5-flash">Google Gemini 1.5 Flash (Stabile)</option>
+            <option value="gemini-2.5-pro">⭐ Google Gemini 2.5 Pro (Massima Qualità, ~Opus)</option>
+            <option value="gemini-2.5-flash">Google Gemini 2.5 Flash (Veloce + Intelligente)</option>
+            <option value="gemini-2.0-flash" selected>Google Gemini 2.0 Flash (1.500 req/die gratis)</option>
             <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Ragionamento Profondo)</option>
+            <option value="gemini-1.5-flash">Google Gemini 1.5 Flash (Stabile)</option>
             <option value="groq-qwen-32b">Groq: Qwen 2.5 Coder 32B (Open Source)</option>
           </select>
         </div>
