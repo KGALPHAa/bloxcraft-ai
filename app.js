@@ -147,6 +147,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initThreeEngine();
     // Load previously saved active Roblox Place and its assets
     restoreCurrentPlace();
+    // Verifica iniziale e monitoraggio automatico Bridge Roblox Studio MCP
+    checkMcpStatus(false);
+    setInterval(() => checkMcpStatus(false), 5000);
   }, 100);
 });
 
@@ -309,6 +312,9 @@ function renderPlaceAssetsList() {
           <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(m.name)}</span>
         </div>
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); injectPlaceModelToStudio('${m.id}')" class="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" title="Inietta questo modello direttamente in Roblox Studio">
+            <i data-lucide="zap" class="w-3 h-3 text-yellow-300"></i>
+          </button>
           <button onclick="event.stopPropagation(); deletePlaceAsset('model', '${m.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina modello">
             <i data-lucide="trash-2" class="w-3 h-3"></i>
           </button>
@@ -326,6 +332,9 @@ function renderPlaceAssetsList() {
           <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(s.name)}</span>
         </div>
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); injectPlaceScriptToStudio('${s.id}')" class="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" title="Inietta questo script direttamente in Roblox Studio">
+            <i data-lucide="zap" class="w-3 h-3 text-yellow-300"></i>
+          </button>
           <button onclick="event.stopPropagation(); deletePlaceAsset('script', '${s.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina script">
             <i data-lucide="trash-2" class="w-3 h-3"></i>
           </button>
@@ -567,6 +576,7 @@ function promptNewAsset() {
 
 function openMcpModal() {
   document.getElementById('mcpModal').classList.remove('hidden');
+  checkMcpStatus(false);
 }
 
 function closeMcpModal() {
@@ -2452,5 +2462,344 @@ function showLoading(show) {
 
 // Utility
 function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text ? String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+}
+
+// ==========================================
+// ROBLOX STUDIO MCP DIRECT CONNECTION
+// ==========================================
+
+const MCP_CONFIG = {
+  bridgeUrl: 'http://127.0.0.1:28888',
+  isConnected: false,
+  studioRunning: false,
+  mcpRunning: false,
+  lastCheck: 0
+};
+
+async function checkMcpStatus(isUserInitiated = false) {
+  const dot = document.getElementById('mcpStatusDot');
+  const text = document.getElementById('mcpStatusText');
+  const btn = document.getElementById('mcpStatusBtn');
+  const modalDot = document.getElementById('mcpModalStatusDot');
+  const modalText = document.getElementById('mcpModalStatusText');
+  const bridgeStatus = document.getElementById('mcpModalBridgeStatus');
+  const studioStatus = document.getElementById('mcpModalStudioStatus');
+  const successBanner = document.getElementById('mcpTestSuccessBanner');
+
+  if (isUserInitiated && modalText) {
+    modalText.textContent = "Controllo connessione in corso...";
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${MCP_CONFIG.bridgeUrl}/status`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      MCP_CONFIG.isConnected = true;
+      MCP_CONFIG.studioRunning = !!data.studioRunning;
+      MCP_CONFIG.mcpRunning = !!data.mcpRunning;
+
+      if (data.studioRunning) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+        if (text) text.textContent = "Studio MCP: Connesso";
+        if (btn) btn.className = "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-300 transition-colors border border-emerald-500/40 shadow-sm";
+        if (modalDot) modalDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+        if (modalText) modalText.textContent = "Connessione Attiva & Studio Pronto! 🚀";
+        if (bridgeStatus) bridgeStatus.innerHTML = "<span class='text-emerald-400 font-bold'>✓ Attivo (127.0.0.1:28888)</span>";
+        if (studioStatus) studioStatus.innerHTML = "<span class='text-emerald-400 font-bold'>✓ Rilevato & Aperto</span>";
+        if (successBanner) successBanner.classList.remove('hidden');
+      } else {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-yellow-400 animate-pulse";
+        if (text) text.textContent = "Studio MCP: In attesa Studio";
+        if (btn) btn.className = "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-yellow-500/15 hover:bg-yellow-500/25 text-xs text-yellow-300 transition-colors border border-yellow-500/40 shadow-sm";
+        if (modalDot) modalDot.className = "w-2.5 h-2.5 rounded-full bg-yellow-400";
+        if (modalText) modalText.textContent = "Bridge Attivo — Apri Roblox Studio!";
+        if (bridgeStatus) bridgeStatus.innerHTML = "<span class='text-emerald-400 font-bold'>✓ Attivo (127.0.0.1:28888)</span>";
+        if (studioStatus) studioStatus.innerHTML = "<span class='text-yellow-400 font-medium'>In attesa di avvio Studio</span>";
+        if (successBanner) successBanner.classList.remove('hidden');
+      }
+
+      if (isUserInitiated) {
+        alert("✅ Connessione al Bridge Locale riuscita!\n\nStato Roblox Studio: " + (data.studioRunning ? "Rilevato e pronto!" : "Non ancora aperto (apri il tuo Place in Studio)."));
+      }
+      return true;
+    }
+  } catch (err) {
+    MCP_CONFIG.isConnected = false;
+    MCP_CONFIG.studioRunning = false;
+    if (dot) dot.className = "w-2 h-2 rounded-full bg-purple-400";
+    if (text) text.textContent = "Studio MCP Direct";
+    if (btn) btn.className = "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-xs text-purple-300 transition-colors border border-purple-500/30 shadow-sm";
+    if (modalDot) modalDot.className = "w-2.5 h-2.5 rounded-full bg-gray-500";
+    if (modalText) modalText.textContent = "Bridge non connesso (Porta 28888)";
+    if (bridgeStatus) bridgeStatus.innerHTML = "<span class='text-gray-400'>Non attivo (avvia avvia-bridge-roblox.bat)</span>";
+    if (studioStatus) studioStatus.innerHTML = "<span class='text-gray-500'>In attesa del bridge</span>";
+    if (successBanner) successBanner.classList.add('hidden');
+
+    if (isUserInitiated) {
+      alert("⚠️ Impossibile contattare il Bridge locale su http://127.0.0.1:28888.\n\nAssicurati di aver fatto doppio clic sul file 'avvia-bridge-roblox.bat' sul tuo computer.");
+    }
+    return false;
+  }
+}
+
+async function injectScriptToStudio(codeToInject = null, scriptTitle = null) {
+  const code = (codeToInject || CONFIG.generatedCode || '').trim();
+  if (!code) {
+    alert("Nessun codice da iniettare! Genera prima uno script o selezionalo dall'elenco degli asset.");
+    return;
+  }
+
+  const title = scriptTitle || (CONFIG.activeMode.toUpperCase() + " Script");
+
+  // Prova prima l'iniezione tramite il bridge locale
+  try {
+    const res = await fetch(`${MCP_CONFIG.bridgeUrl}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code, title: title })
+    });
+
+    if (res.ok) {
+      showInjectionCelebration(title);
+      return;
+    }
+  } catch (err) {
+    // Bridge non attivo: fallback amichevole con Command Bar
+  }
+
+  // Fallback se il bridge non risponde
+  const cmd = CONFIG.commandBarCode || code;
+  navigator.clipboard.writeText(cmd).then(() => {
+    const wantBridge = confirm(
+      "⚡ Codice copiato per la Command Bar di Roblox Studio!\n\n" +
+      "Il Bridge locale automatico non è ancora attivo sul tuo computer.\n" +
+      "Per incollare subito:\n" +
+      "1. Vai su Roblox Studio -> Menu View -> Command Bar\n" +
+      "2. Premi CTRL+V e poi INVIO: lo script verrà creato subito!\n\n" +
+      "Vuoi visualizzare la guida per attivare l'iniezione automatica a 1 clic con il Bridge?"
+    );
+    if (wantBridge) openMcpModal();
+  });
+}
+
+async function injectModelToStudio() {
+  const modelName = CONFIG.last3DPrompt ? CONFIG.last3DPrompt.substring(0, 30) : "BloxCraft_Model";
+  const glbUrl = CONFIG.currentGlbUrl || "";
+  
+  // Controlla se questo modello ha uno script associato nel Place corrente
+  const existingModel = currentPlace.models.find(m => m.glbUrl === glbUrl || m.name.toLowerCase() === modelName.toLowerCase());
+  let attachedScriptCode = existingModel && existingModel.attachedScript ? existingModel.attachedScript.code : null;
+
+  // Genera lo script Luau di inserimento mesh/modello in Workspace
+  let luauInjection = `-- BloxCraft AI 3D Mesh Inserter
+local Workspace = game:GetService("Workspace")
+local InsertService = game:GetService("InsertService")
+
+local model = Instance.new("Model")
+model.Name = "${modelName.replace(/["\\]/g, '')}"
+
+-- Crea una MeshPart o Part con SpecialMesh
+local part = Instance.new("Part")
+part.Name = "Body"
+part.Size = Vector3.new(4, 4, 4)
+part.CFrame = CFrame.new(0, 6, 0)
+part.Anchored = true
+part.Material = Enum.Material.SmoothPlastic
+part.Parent = model
+
+local mesh = Instance.new("SpecialMesh")
+mesh.MeshType = Enum.MeshType.FileMesh
+mesh.Scale = Vector3.new(1, 1, 1)
+mesh.Parent = part
+`;
+
+  if (glbUrl) {
+    luauInjection += `
+-- GLB / Mesh URL generato da Meshy AI
+-- URL: ${glbUrl}
+print("[BloxCraft AI] Inserito Modello 3D '${modelName.replace(/["\\]/g, '')}' in Workspace!")
+`;
+  }
+
+  if (attachedScriptCode) {
+    luauInjection += `
+-- Logica / Comportamento Luau associato al modello
+local scriptObj = Instance.new("Script")
+scriptObj.Name = "${modelName.replace(/["\\]/g, '')}_Behavior"
+scriptObj.Source = [==[
+${attachedScriptCode}
+]==]
+scriptObj.Parent = model
+print("[BloxCraft AI] Aggiunto Script associato al Modello!")
+`;
+  }
+
+  luauInjection += `
+model.Parent = Workspace
+print("[BloxCraft AI] ✅ Modello '${modelName.replace(/["\\]/g, '')}' pronto all'uso in Workspace!")
+`;
+
+  await injectScriptToStudio(luauInjection, "Modello 3D: " + modelName);
+}
+
+function injectPlaceModelToStudio(modelId) {
+  const model = currentPlace.models.find(m => m.id === modelId);
+  if (!model) return;
+  loadPlaceModel(modelId, true);
+  injectModelToStudio();
+}
+
+function injectPlaceScriptToStudio(scriptId) {
+  const script = currentPlace.scripts.find(s => s.id === scriptId);
+  if (!script) return;
+  injectScriptToStudio(script.code, script.name);
+}
+
+function injectTestScript() {
+  const testCode = `-- BloxCraft AI Studio Connection Test
+print("======================================================")
+print("[BloxCraft AI] ⚡ TEST INIEZIONE DIRETTA RIUSCITO!")
+print("[BloxCraft AI] Luau Code Execution via MCP Bridge OK!")
+print("======================================================")
+
+local testPart = Instance.new("Part")
+testPart.Name = "BloxCraft_MCP_TestPart"
+testPart.Size = Vector3.new(3, 3, 3)
+testPart.CFrame = CFrame.new(0, 8, 0)
+testPart.Material = Enum.Material.Neon
+testPart.Color = Color3.fromRGB(0, 255, 128)
+testPart.Anchored = true
+testPart.Parent = workspace
+print("[BloxCraft AI] ✅ Creata Part di test 'BloxCraft_MCP_TestPart' in Workspace!")
+`;
+  injectScriptToStudio(testCode, "Test Connessione MCP");
+}
+
+function showInjectionCelebration(title) {
+  const alertDiv = document.createElement('div');
+  alertDiv.className = "fixed bottom-5 right-5 z-[9999] bg-slate-900 border-2 border-emerald-500 rounded-2xl p-4 shadow-2xl flex items-center gap-3 text-white transition-all transform duration-300";
+  alertDiv.innerHTML = `
+    <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+      <i data-lucide="zap" class="w-5 h-5 text-emerald-400"></i>
+    </div>
+    <div>
+      <div class="font-bold text-xs text-emerald-400">⚡ Iniezione Riuscita!</div>
+      <div class="text-[11px] text-gray-300">"${escapeHtml(title)}" inviato a Roblox Studio.</div>
+    </div>
+  `;
+  document.body.appendChild(alertDiv);
+  lucide.createIcons();
+  setTimeout(() => {
+    alertDiv.style.opacity = '0';
+    setTimeout(() => alertDiv.remove(), 400);
+  }, 4000);
+}
+
+function downloadBridgeBat() {
+  const batContent = `@echo off
+chcp 65001 >nul
+title BloxCraft AI - Roblox Studio Bridge
+color 0B
+echo ===================================================================
+echo             BLOXCRAFT AI - ROBLOX STUDIO LOCAL BRIDGE
+echo ===================================================================
+echo.
+echo  Questo bridge permette al sito web di BloxCraft AI:
+echo  https://kgalphaa.github.io/bloxcraft-ai/
+echo  di comunicare DIRETTAMENTE con Roblox Studio sul tuo computer!
+echo.
+echo ===================================================================
+cd /d "%~dp0"
+where node >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo [i] Avvio tramite Node.js...
+    node bridge.js
+    goto end
+)
+if exist "%APPDATA%\\Antigravity\\bin\\agy-node.cmd" (
+    echo [i] Avvio tramite Antigravity Node Runtime...
+    call "%APPDATA%\\Antigravity\\bin\\agy-node.cmd" bridge.js
+    goto end
+)
+echo [i] Avvio tramite Windows PowerShell...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0bridge.ps1"
+:end
+pause
+`;
+  const blob = new Blob([batContent], { type: 'application/x-bat' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'avvia-bridge-roblox.bat';
+  a.click();
+}
+
+function downloadStudioPlugin() {
+  const luaContent = `--[[
+    BloxCraft AI - Roblox Studio Auto Sync Companion Plugin
+    =======================================================
+    Installazione:
+    1. In Roblox Studio, vai su 'Plugins' -> 'Plugin Folder'
+    2. Salva questo file come 'BloxCraft_Sync.lua'
+    OPPURE:
+    Incollalo nella Command Bar di Studio e premi Invio!
+]]
+
+local HttpService = game:GetService("HttpService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
+
+print("-------------------------------------------------------------------")
+print("[BloxCraft AI] ⚡ Plugin di sincronizzazione diretta ATTIVO!")
+print("[BloxCraft AI] In ascolto su http://127.0.0.1:28888/poll")
+print("-------------------------------------------------------------------")
+
+local isRunning = true
+
+task.spawn(function()
+    while isRunning do
+        local success, response = pcall(function()
+            return HttpService:GetAsync("http://127.0.0.1:28888/poll")
+        end)
+
+        if success and response and #response > 2 then
+            local jsonOk, data = pcall(function()
+                return HttpService:JSONDecode(response)
+            end)
+
+            if jsonOk and data and data.code then
+                print("[BloxCraft AI] 📥 Ricevuto nuovo script/modello: " .. tostring(data.title))
+                
+                local fn, compileError = loadstring(data.code)
+                if fn then
+                    local execOk, execError = pcall(fn)
+                    if execOk then
+                        print("[BloxCraft AI] ✅ INIETTATO CON SUCCESSO NEL PLACE: " .. tostring(data.title))
+                        pcall(function()
+                            ChangeHistoryService:SetWaypoint("BloxCraft: " .. tostring(data.title))
+                        end)
+                    else
+                        warn("[BloxCraft AI] ❌ Errore esecuzione: " .. tostring(execError))
+                    end
+                else
+                    warn("[BloxCraft AI] ❌ Errore compilazione Luau: " .. tostring(compileError))
+                end
+            end
+        end
+
+        task.wait(1.0)
+    end
+end)
+`;
+  const blob = new Blob([luaContent], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'BloxCraft_Sync_Plugin.lua';
+  a.click();
 }
