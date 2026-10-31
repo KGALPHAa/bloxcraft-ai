@@ -2828,6 +2828,38 @@ function downloadCode() {
   URL.revokeObjectURL(url);
 }
 
+function clearCurrentModeChat() {
+  ensurePlaceChats();
+  const mode = CONFIG.activeMode || 'scripting';
+  if (confirm(`Vuoi cancellare la cronologia della chat per "${MODE_INFO[mode]?.title || mode}"?`)) {
+    currentPlace.chats[mode] = [];
+    saveCurrentPlace();
+    renderActiveChat();
+  }
+}
+
+function injectActiveOutputToStudio() {
+  if (CONFIG.activeOutputTab === '3d') {
+    injectModelToStudio();
+  } else if (CONFIG.activeOutputTab === 'preview') {
+    injectCurrentUIToStudio();
+  } else {
+    injectScriptToStudio();
+  }
+}
+
+function copyCurrentActiveCode() {
+  copyCode();
+}
+
+function downloadCurrentActiveOutput() {
+  if (CONFIG.activeOutputTab === '3d') {
+    downloadCurrentGLB();
+  } else {
+    downloadCode();
+  }
+}
+
 function clearWorkspace() {
   CONFIG.generatedCode = "";
   CONFIG.commandBarCode = "";
