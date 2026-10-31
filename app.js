@@ -1828,9 +1828,10 @@ async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = n
   const systemInstruction = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.scripting;
 
   if (CONFIG.modelProvider.startsWith('gemini')) {
-    // Normalizza: se è rimasto gemini-3.8 o simile, usa gemini-2.0-flash
+    // Normalizza: rimpiazza modelli obsoleti/inesistenti con gemini-2.0-flash
     let model = CONFIG.modelProvider;
-    if (model.includes('3.8') || model.includes('gemini-3')) {
+    const obsoleteModels = ['3.8', 'gemini-3', 'gemini-4'];
+    if (obsoleteModels.some(s => model.includes(s))) {
       model = 'gemini-2.0-flash';
       CONFIG.modelProvider = 'gemini-2.0-flash';
       localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
@@ -3058,11 +3059,15 @@ function handleProviderChange() {
 
 function updateActiveModelTag(provider) {
   const tag = document.getElementById('activeModelTag');
-  if (provider === 'gemini-3.8-flash') tag.textContent = 'Gemini 3.8 Flash';
-  else if (provider === 'gemini-3.8-flash-lite') tag.textContent = 'Gemini 3.8 Flash Lite';
-  else if (provider === 'gemini-3.8-pro') tag.textContent = 'Gemini 3.8 Pro';
-  else if (provider === 'groq-qwen-32b') tag.textContent = 'Groq Qwen 2.5 Coder 32B';
-  else tag.textContent = provider;
+  const labels = {
+    'gemini-2.5-pro':   '⭐ Gemini 2.5 Pro',
+    'gemini-2.5-flash': 'Gemini 2.5 Flash',
+    'gemini-2.0-flash': 'Gemini 2.0 Flash',
+    'gemini-1.5-pro':   'Gemini 1.5 Pro',
+    'gemini-1.5-flash': 'Gemini 1.5 Flash',
+    'groq-qwen-32b':    'Groq Qwen 2.5 Coder'
+  };
+  if (tag) tag.textContent = labels[provider] || provider;
 }
 
 function updateApiStatusUI() {
