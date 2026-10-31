@@ -1290,17 +1290,7 @@ async function generateMeshyModel(prompt, referenceImage = null) {
     
     if (!glbUrl) throw new Error('Meshy non ha restituito un URL GLB valido.');
     
-    setMeshyStep(2, 'active');
-    showMeshyStatus(true, 'Caricamento del modello GLB nel viewer...');
-    
-    // Step 3: Load GLB into Three.js
-    await loadGLBFromUrl(glbUrl);
-    
-    setMeshyStep(3, 'done');
-    showMeshyStatus(false);
-    stopMeshyTimer();
-    
-    // Save as asset in current Roblox Place
+    // Salva IMMEDIATAMENTE il modello come asset nel Place (non perderlo mai!)
     const modelAsset = {
       id: 'mod_' + Date.now(),
       name: (prompt && prompt.length > 28) ? prompt.substring(0, 28) + '...' : (prompt || 'Modello 3D da Reference'),
@@ -1310,8 +1300,25 @@ async function generateMeshyModel(prompt, referenceImage = null) {
     };
     currentPlace.models.unshift(modelAsset);
     saveCurrentPlace();
+    CONFIG.currentGlbUrl = glbUrl;
 
-    appendBotMessage(`✅ **Modello 3D GLB ${isImageMode ? 'generato da immagine reference' : ''} salvato nel place "${currentPlace.name}"!**\n\nPuoi:\n- 🔄 **Ruotarlo a 360°** e zoomare con il mouse nel viewport\n- ⬇️ **Scaricare il file .GLB** con il pulsante verde per importarlo in Roblox Studio\n- ⚡ **Iniettarlo direttamente in Roblox Studio** con il pulsante **"⚡ Inietta Modello in Studio (MCP)"**\n- 📜 **Aggiungere logiche Luau** a questo modello cliccando su **"Aggiungi Script al Modello"**\n- 📁 Lo ritrovi sempre salvato nella colonna a sinistra in **Asset del Place**.`);
+    setMeshyStep(2, 'done');
+    showMeshyStatus(true, 'Caricamento del modello GLB nel viewer 3D...');
+    
+    // Step 3: Load GLB into Three.js (con fallback sicuro)
+    let viewerLoaded = false;
+    try {
+      await loadGLBFromUrl(glbUrl);
+      setMeshyStep(3, 'done');
+      viewerLoaded = true;
+    } catch(viewerErr) {
+      console.warn('Caricamento visuale Three.js non riuscito:', viewerErr);
+    }
+    
+    showMeshyStatus(false);
+    stopMeshyTimer();
+
+    appendBotMessage(`✅ **Modello 3D GLB generato con successo con Meshy AI!**\n\n${viewerLoaded ? '🎨 Il modello è visualizzato nel viewport 3D qui a fianco!' : '💾 Il modello è stato generato e salvato nel tuo Place (scaricabile con il pulsante verde).'} \n\nCosa puoi fare adesso:\n- ⚡ **Inietta in Studio (MCP):** Clicca su *"⚡ Inietta Modello in Studio"* per importarlo direttamente nel Workspace\n- ⬇️ **Scarica .GLB:** Scarica il file 3D reale con texture PBR per Roblox Studio\n- 📜 **Aggiungi Script Luau:** Clicca sul pulsante *"Aggiungi Script al Modello"* per dargli logica di gioco\n- 📁 Lo trovi sempre salvato a sinistra tra gli **Asset del Place**.`);
     
   } catch(err) {
     stopMeshyTimer();
@@ -1479,11 +1486,54 @@ async function pollTripoTask(taskId) {
   });
 }
 
+// Scarica il file binario GLB attraverso tentativi a cascata (diretto + proxy CORS multipli)
+async function fetchGlbArrayBuffer(url) {
+  // 1. Tentativo Diretto
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (res.ok) return await res.arrayBuffer();
+  } catch(e) {
+    console.warn("[BloxCraft] Fetch diretto fallito (probabile blocco CORS CDN), provo proxy 1...", e);
+  }
+
+  // 2. Tentativo tramite api.allorigins.win
+  try {
+    const p1 = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const res = await fetch(p1);
+    if (res.ok) return await res.arrayBuffer();
+  } catch(e) {
+    console.warn("[BloxCraft] Proxy allorigins fallito, provo proxy 2...", e);
+  }
+
+  // 3. Tentativo tramite corsproxy.io
+  try {
+    const p2 = 'https://corsproxy.io/?' + encodeURIComponent(url);
+    const res = await fetch(p2);
+    if (res.ok) return await res.arrayBuffer();
+  } catch(e) {
+    console.warn("[BloxCraft] Proxy corsproxy fallito", e);
+  }
+
+  throw new Error("Impossibile scaricare i dati binari del modello GLB dal CDN.");
+}
+
 async function loadGLBFromUrl(glbUrl) {
+  if (!threeScene || !threeCurrentModelGroup) initThreeEngine();
+
+  // Salva l'URL globale
+  CONFIG.currentGlbUrl = glbUrl;
+
+  // Mostra i bottoni per scaricare e aggiungere script
+  const dlBtn = document.getElementById('downloadGlbBtn');
+  if (dlBtn) dlBtn.classList.remove('hidden');
+  const addScriptBtn = document.getElementById('addScriptToModelBtn');
+  if (addScriptBtn) addScriptBtn.classList.remove('hidden');
+
+  // Scarica il buffer binario in memoria (supera qualsiasi blocco CORS)
+  const buffer = await fetchGlbArrayBuffer(glbUrl);
+
   return new Promise((resolve, reject) => {
-    if (!threeScene || !threeCurrentModelGroup) initThreeEngine();
-    
-    // Clear old model
+    // Pulisci il vecchio modello
     while (threeCurrentModelGroup.children.length > 0) {
       const obj = threeCurrentModelGroup.children[0];
       if (obj.geometry) obj.geometry.dispose();
@@ -1493,21 +1543,13 @@ async function loadGLBFromUrl(glbUrl) {
       }
       threeCurrentModelGroup.remove(obj);
     }
-    
-    // Cleanup old object URL
-    if (currentGlbObjectUrl) {
-      URL.revokeObjectURL(currentGlbObjectUrl);
-      currentGlbObjectUrl = null;
-    }
-    
+
     document.getElementById('threePlaceholder').classList.add('hidden');
-    
-    // Use GLTFLoader
+
     const loader = new THREE.GLTFLoader();
-    
-    // Try direct load first (works if CORS is enabled on the CDN)
-    loader.load(
-      glbUrl,
+    loader.parse(
+      buffer,
+      '',
       (gltf) => {
         const model = gltf.scene;
         model.traverse(child => {
@@ -1516,9 +1558,9 @@ async function loadGLBFromUrl(glbUrl) {
             child.receiveShadow = true;
           }
         });
-        
+
         threeCurrentModelGroup.add(model);
-        
+
         const box = new THREE.Box3().setFromObject(threeCurrentModelGroup);
         const size = new THREE.Vector3();
         box.getSize(size);
@@ -1527,76 +1569,19 @@ async function loadGLBFromUrl(glbUrl) {
           const scale = 15 / maxDim;
           threeCurrentModelGroup.scale.setScalar(scale);
         }
-        
+
         centerThreeCameraOnModel();
-        
-        // Count meshes
+
         let meshCount = 0;
         model.traverse(c => { if (c.isMesh) meshCount++; });
         document.getElementById('threeModelTitle').textContent = '🎨 Modello 3D Reale (Meshy AI)';
         document.getElementById('threePartCount').textContent = `${meshCount} mesh`;
-        
-        // Store GLB URL for download
-        CONFIG.currentGlbUrl = glbUrl;
-        
-        // Show download and add script buttons
-        const dlBtn = document.getElementById('downloadGlbBtn');
-        if (dlBtn) dlBtn.classList.remove('hidden');
-        const addScriptBtn = document.getElementById('addScriptToModelBtn');
-        if (addScriptBtn) addScriptBtn.classList.remove('hidden');
-        
+
         resolve();
       },
-      (progress) => {
-        const pct = Math.round((progress.loaded / (progress.total || 1)) * 100);
-        const statusEl = document.getElementById('meshyStatusText');
-        if (statusEl) statusEl.textContent = `Caricamento GLB: ${pct}%`;
-      },
-      (error) => {
-        // CORS blocked — try via corsproxy.io
-        console.warn('Direct GLB load failed, trying CORS proxy:', error);
-        const proxiedUrl = 'https://corsproxy.io/?' + encodeURIComponent(glbUrl);
-        loader.load(
-          proxiedUrl,
-          (gltf) => {
-            const model = gltf.scene;
-            model.traverse(child => {
-              if (child.isMesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            });
-            threeCurrentModelGroup.add(model);
-            
-            const box = new THREE.Box3().setFromObject(threeCurrentModelGroup);
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            const maxDim = Math.max(size.x, size.y, size.z);
-            if (maxDim > 0) {
-              const scale = 15 / maxDim;
-              threeCurrentModelGroup.scale.setScalar(scale);
-            }
-            
-            centerThreeCameraOnModel();
-            
-            let meshCount = 0;
-            model.traverse(c => { if (c.isMesh) meshCount++; });
-            document.getElementById('threeModelTitle').textContent = '🎨 Modello 3D Reale (Meshy AI)';
-            document.getElementById('threePartCount').textContent = `${meshCount} mesh`;
-            
-            CONFIG.currentGlbUrl = glbUrl;
-            const dlBtn = document.getElementById('downloadGlbBtn');
-            if (dlBtn) dlBtn.classList.remove('hidden');
-            const addScriptBtn = document.getElementById('addScriptToModelBtn');
-            if (addScriptBtn) addScriptBtn.classList.remove('hidden');
-            
-            resolve();
-          },
-          undefined,
-          (err2) => {
-            reject(new Error(`Impossibile caricare il GLB nel viewer 3D: ${err2.message}. Il file GLB è comunque disponibile per il download diretto.`));
-          }
-        );
+      (parseErr) => {
+        console.error("[BloxCraft] Errore parsing GLB in Three.js:", parseErr);
+        reject(new Error("Errore durante la decodifica della geometria 3D: " + (parseErr.message || "formato non valido")));
       }
     );
   });
