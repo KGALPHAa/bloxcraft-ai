@@ -1,10 +1,10 @@
 // BloxCraft AI - Dedicated Roblox Assistant Core Engine
 
-// Migration to Gemini 3.8
+// Correzione e normalizzazione modello Gemini (Gemini 2.0 Flash è l'ufficiale ad alte prestazioni)
 let savedProvider = localStorage.getItem('bloxcraft_model_provider');
-if (!savedProvider || savedProvider.includes('2.0') || savedProvider.includes('1.5')) {
-  savedProvider = 'gemini-3.8-flash';
-  localStorage.setItem('bloxcraft_model_provider', 'gemini-3.8-flash');
+if (!savedProvider || savedProvider.includes('3.8') || savedProvider.includes('gemini-3')) {
+  savedProvider = 'gemini-2.0-flash';
+  localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
 }
 
 const CONFIG = {
@@ -23,7 +23,7 @@ const CONFIG = {
   currentGlbBlob: null,       // Blob for download
   referenceImage: null,       // Base64 data URI per Image-to-3D Meshy
   referenceImageName: '',     // Nome file reference
-  chatMessages: [],
+  activeAssetForScript: null, // Asset target per aggiunta script: { type: 'model'|'ui', id, name }
   currentProjectId: localStorage.getItem('bloxcraft_current_project_id') || 'project_default'
 };
 
@@ -169,12 +169,38 @@ let currentPlace = {
   models: [],
   scripts: [],
   uis: [],
-  chatMessages: []
+  chats: {
+    'scripting': [],
+    '3d-builder': [],
+    'ui-designer': [],
+    'debugger': []
+  }
 };
 
+// Assicura che la struttura chats sia presente e migra eventuali vecchi messaggi
+function ensurePlaceChats() {
+  if (!currentPlace.chats || typeof currentPlace.chats !== 'object') {
+    currentPlace.chats = {
+      'scripting': [],
+      '3d-builder': [],
+      'ui-designer': [],
+      'debugger': []
+    };
+  }
+  if (!Array.isArray(currentPlace.chats['scripting'])) currentPlace.chats['scripting'] = [];
+  if (!Array.isArray(currentPlace.chats['3d-builder'])) currentPlace.chats['3d-builder'] = [];
+  if (!Array.isArray(currentPlace.chats['ui-designer'])) currentPlace.chats['ui-designer'] = [];
+  if (!Array.isArray(currentPlace.chats['debugger'])) currentPlace.chats['debugger'] = [];
+
+  // Se c'erano vecchi messaggi generici in chatMessages, migrali su scripting
+  if (Array.isArray(currentPlace.chatMessages) && currentPlace.chatMessages.length > 0 && currentPlace.chats['scripting'].length === 0) {
+    currentPlace.chats['scripting'] = [...currentPlace.chatMessages];
+  }
+}
+
 function saveCurrentPlace() {
+  ensurePlaceChats();
   currentPlace.updatedAt = Date.now();
-  currentPlace.chatMessages = CONFIG.chatMessages;
 
   // Persist this place
   localStorage.setItem(`bloxcraft_place_${currentPlace.id}`, JSON.stringify(currentPlace));
@@ -204,6 +230,11 @@ function saveCurrentPlace() {
   updatePlaceUI();
 }
 
+// Alias globale sicuro per evitare ReferenceError
+function saveCurrentProjectState() {
+  saveCurrentPlace();
+}
+
 function restoreCurrentPlace() {
   const currentId = localStorage.getItem('bloxcraft_current_place_id') || 'place_default';
   const raw = localStorage.getItem(`bloxcraft_place_${currentId}`);
@@ -216,8 +247,8 @@ function restoreCurrentPlace() {
       currentPlace.models = data.models || [];
       currentPlace.scripts = data.scripts || [];
       currentPlace.uis = data.uis || [];
+      currentPlace.chats = data.chats || null;
       currentPlace.chatMessages = data.chatMessages || [];
-      CONFIG.chatMessages = currentPlace.chatMessages;
     } catch(e) {
       console.warn("Ripristino place fallito:", e);
     }
@@ -251,21 +282,11 @@ function restoreCurrentPlace() {
     saveCurrentPlace();
   }
 
+  ensurePlaceChats();
   updatePlaceUI();
 
-  // Replay chat messages in DOM
-  const chatContainer = document.getElementById('chatHistory');
-  if (chatContainer) {
-    chatContainer.innerHTML = '';
-    if (CONFIG.chatMessages.length === 0) {
-      addInitialWelcomeBubble();
-    } else {
-      CONFIG.chatMessages.forEach(msg => {
-        if (msg.sender === 'user') renderUserBubbleDOM(msg.text);
-        else renderBotBubbleDOM(msg.text);
-      });
-    }
-  }
+  // Renderizza la chat della modalità attiva
+  renderActiveChat();
 
   // If place has models, load the most recent one
   if (currentPlace.models.length > 0) {
@@ -278,6 +299,27 @@ function restoreCurrentPlace() {
     const latestScript = currentPlace.scripts[0];
     loadPlaceScript(latestScript.id, false);
   }
+}
+
+// Renderizza i messaggi della chat per la modalità attualmente selezionata
+function renderActiveChat() {
+  const chatContainer = document.getElementById('chatHistory');
+  if (!chatContainer) return;
+  chatContainer.innerHTML = '';
+
+  ensurePlaceChats();
+  const mode = CONFIG.activeMode || 'scripting';
+  const messages = currentPlace.chats[mode] || [];
+
+  if (messages.length === 0) {
+    addModeWelcomeBubble(mode);
+  } else {
+    messages.forEach(msg => {
+      if (msg.sender === 'user') renderUserBubbleDOM(msg.text);
+      else renderBotBubbleDOM(msg.text);
+    });
+  }
+  chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
 function updatePlaceUI() {
@@ -317,7 +359,10 @@ function renderPlaceAssetsList() {
           <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(m.name)}</span>
         </div>
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-          <button onclick="event.stopPropagation(); injectPlaceModelToStudio('${m.id}')" class="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" title="Inietta questo modello direttamente in Roblox Studio">
+          <button onclick="event.stopPropagation(); openAddScriptModalForModel('${m.id}')" class="p-1 rounded text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20" title="📜 Aggiungi Script Luau a questo modello 3D">
+            <i data-lucide="file-code" class="w-3 h-3"></i>
+          </button>
+          <button onclick="event.stopPropagation(); injectPlaceModelToStudio('${m.id}')" class="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" title="⚡ Inietta questo modello direttamente in Roblox Studio">
             <i data-lucide="zap" class="w-3 h-3 text-yellow-300"></i>
           </button>
           <button onclick="event.stopPropagation(); deletePlaceAsset('model', '${m.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina modello">
@@ -357,6 +402,9 @@ function renderPlaceAssetsList() {
           <span class="text-xs text-gray-200 truncate font-medium">${escapeHtml(u.name)}</span>
         </div>
         <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button onclick="event.stopPropagation(); openAddScriptModalForUI('${u.id}')" class="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20" title="📜 Aggiungi LocalScript per questa GUI">
+            <i data-lucide="file-code" class="w-3 h-3"></i>
+          </button>
           <button onclick="event.stopPropagation(); deletePlaceAsset('ui', '${u.id}')" class="p-1 rounded text-gray-500 hover:text-rose-400 hover:bg-rose-500/10" title="Elimina UI">
             <i data-lucide="trash-2" class="w-3 h-3"></i>
           </button>
@@ -589,27 +637,104 @@ function closeMcpModal() {
 }
 
 function addInitialWelcomeBubble() {
+  addModeWelcomeBubble(CONFIG.activeMode || 'scripting');
+}
+
+function addModeWelcomeBubble(modeKey) {
   const chat = document.getElementById('chatHistory');
-  chat.innerHTML = `
-    <div class="flex gap-3 text-sm">
-      <div class="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
-        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-blue-400"></i>
-      </div>
-      <div class="space-y-1">
-        <div class="font-semibold text-white text-xs">BloxCraft AI</div>
-        <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3 rounded-2xl rounded-tl-none text-xs">
-          Ciao! Sono il tuo assistente dedicato per Roblox. Cosa vuoi creare oggi?
-          <ul class="list-disc list-inside mt-2 space-y-1 text-gray-400">
-            <li><strong class="text-blue-400">Luau Scripting</strong> — Script server, client, DataStore, sistemi di gioco</li>
-            <li><strong class="text-emerald-400">3D Builder (Meshy AI)</strong> — Mesh 3D GLB reali + Script Luau per Studio</li>
-            <li><strong class="text-purple-400">GUI Designer</strong> — Interfacce HUD con visual preview live</li>
-            <li><strong class="text-rose-400">Debugger</strong> — Correzione errori della console Roblox</li>
-          </ul>
-          <p class="mt-2 text-yellow-300/80 text-[11px]">⚙️ Per il motore 3D reale, configura la tua chiave <strong>Meshy AI</strong> gratuita in "Impostazioni API".</p>
+  if (!chat) return;
+
+  if (modeKey === '3d-builder') {
+    chat.innerHTML = `
+      <div class="flex gap-3 text-sm chat-bubble">
+        <div class="w-7 h-7 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+          <i data-lucide="cuboid" class="w-3.5 h-3.5 text-emerald-400"></i>
+        </div>
+        <div class="space-y-1">
+          <div class="font-semibold text-emerald-300 text-xs flex items-center gap-1.5">
+            <span>BloxCraft AI — 3D Builder (Meshy AI)</span>
+            <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono">Chat Separata</span>
+          </div>
+          <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3.5 rounded-2xl rounded-tl-none text-xs space-y-2">
+            <p>Benvenuto nella modalità <strong>3D Builder</strong>! Qui crei modelli 3D GLB reali per Roblox Studio in 2 modi:</p>
+            <ul class="list-disc list-inside space-y-1 text-gray-400 pl-1">
+              <li><strong>Text-to-3D:</strong> Descrivi l'oggetto a parole (es. <em>"Spada laser runica con guardia d'oro"</em>).</li>
+              <li><strong>Image-to-3D:</strong> Clicca su <strong>"Carica Immagine"</strong> (o incolla con Ctrl+V) per generare il modello 3D fedele alla tua foto reference!</li>
+            </ul>
+            <div class="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-200 text-[11px] flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-yellow-300 shrink-0"></i>
+              <span><strong>Nuovo:</strong> Dopo aver generato il modello potrai cliccare su <em>"Aggiungi Script al Modello"</em> per programmarne il comportamento in Studio!</span>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
+  } else if (modeKey === 'ui-designer') {
+    chat.innerHTML = `
+      <div class="flex gap-3 text-sm chat-bubble">
+        <div class="w-7 h-7 rounded-lg bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0">
+          <i data-lucide="layout" class="w-3.5 h-3.5 text-purple-400"></i>
+        </div>
+        <div class="space-y-1">
+          <div class="font-semibold text-purple-300 text-xs flex items-center gap-1.5">
+            <span>BloxCraft AI — GUI & HUD Designer</span>
+            <span class="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.2 rounded font-mono">Chat Separata</span>
+          </div>
+          <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3.5 rounded-2xl rounded-tl-none text-xs space-y-2">
+            <p>Benvenuto nel designer di <strong>Interfacce Grafiche (GUI / HUD)</strong> per Roblox!</p>
+            <ul class="list-disc list-inside space-y-1 text-gray-400 pl-1">
+              <li>Genera layout visivi per barre della salute/stamina, negozi, inventari, menu pausa.</li>
+              <li>Vedi la <strong>preview visiva interattiva</strong> simulata a schermo nel tab <em>Visual UI</em>.</li>
+              <li>Usa il pulsante <strong>"Aggiungi Script a questa GUI"</strong> per generare i LocalScript con TweenService, click e tasti per StarterGui!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (modeKey === 'debugger') {
+    chat.innerHTML = `
+      <div class="flex gap-3 text-sm chat-bubble">
+        <div class="w-7 h-7 rounded-lg bg-rose-600/20 border border-rose-500/30 flex items-center justify-center shrink-0">
+          <i data-lucide="terminal" class="w-3.5 h-3.5 text-rose-400"></i>
+        </div>
+        <div class="space-y-1">
+          <div class="font-semibold text-rose-300 text-xs flex items-center gap-1.5">
+            <span>BloxCraft AI — Console Debugger</span>
+            <span class="text-[10px] bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded font-mono">Chat Separata</span>
+          </div>
+          <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3.5 rounded-2xl rounded-tl-none text-xs space-y-2">
+            <p>Incolla qui gli <strong>errori rossi</strong> della Output Console di Roblox Studio o lo script difettoso.</p>
+            <p class="text-gray-400">L'IA analizzerà la causa dell'errore (nil value, infinite loop, DataStore fallito) e ti fornirà la versione corretta e spiegata.</p>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    // Default: Luau Scripting
+    chat.innerHTML = `
+      <div class="flex gap-3 text-sm chat-bubble">
+        <div class="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+          <i data-lucide="code-2" class="w-3.5 h-3.5 text-blue-400"></i>
+        </div>
+        <div class="space-y-1">
+          <div class="font-semibold text-blue-300 text-xs flex items-center gap-1.5">
+            <span>BloxCraft AI — Luau Scripting</span>
+            <span class="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.2 rounded font-mono">Chat Separata</span>
+          </div>
+          <div class="text-gray-300 leading-relaxed bg-roblox-card border border-roblox-border p-3.5 rounded-2xl rounded-tl-none text-xs space-y-2">
+            <p>Benvenuto nell'assistente di <strong>Scripting Luau per Roblox</strong>. Cosa vuoi programmare per il place <em>"${escapeHtml(currentPlace.name)}"</em>?</p>
+            <ul class="list-disc list-inside space-y-1 text-gray-400 pl-1">
+              <li>Sistemi di combattimento con combo di spade e raycast hitbox</li>
+              <li>Tycoon dropper con nastri trasportatori e leaderstats</li>
+              <li>Salvataggio dati con DataStore / DataStore2 (Coins, Level)</li>
+              <li>LocalScript per client e ServerScript per logica autoritativa</li>
+            </ul>
+            <p class="text-gray-400 text-[11px] pt-1">💡 Puoi anche cliccare sui <strong>Preset Rapidi</strong> a sinistra per iniziare con un click!</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
   lucide.createIcons();
 }
 
@@ -642,6 +767,9 @@ function switchMode(modeKey) {
       uploadBtn.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border text-gray-300 hover:text-white border border-roblox-border text-xs transition shadow-sm";
     }
   }
+
+  // Ricarica la chat specifica per questa modalità!
+  renderActiveChat();
 
   if (modeKey === '3d-builder') {
     switchOutputTab('3d');
@@ -737,24 +865,41 @@ async function submitPrompt() {
   const input = document.getElementById('userPromptInput');
   let prompt = input.value.trim();
 
-  // Se l'utente ha caricato un'immagine di riferimento, il testo può essere opzionale
-  if (!prompt && CONFIG.referenceImage) {
-    prompt = "Modello 3D da Immagine Reference (" + (CONFIG.referenceImageName || "immagine") + ")";
+  // Se l'utente ha caricato un'immagine di riferimento:
+  // 1. Il testo può essere opzionale
+  // 2. La modalità DEVE passare a 3D Builder (Meshy Image-to-3D)
+  if (CONFIG.referenceImage) {
+    if (CONFIG.activeMode !== '3d-builder') {
+      switchMode('3d-builder');
+    }
+    if (!prompt) {
+      prompt = "Modello 3D da Immagine Reference (" + (CONFIG.referenceImageName || "immagine") + ")";
+    }
   }
 
   if (!prompt) return;
 
-  // Valida la chiave Gemini PRIMA di mostrare il messaggio utente
-  if (!CONFIG.apiKey && CONFIG.activeMode !== '3d-builder') {
+  // Valida la chiave Meshy se in modalità 3D
+  if (CONFIG.activeMode === '3d-builder' && !CONFIG.meshyKey) {
     openSettingsModal();
-    alert("Inserisci la tua chiave API Google Gemini nelle impostazioni per procedere.");
+    const meshyInput = document.getElementById('meshyKeyInput');
+    if (meshyInput) {
+      meshyInput.focus();
+      meshyInput.classList.add('ring-2', 'ring-emerald-400');
+    }
+    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali con Meshy AI, inserisci la tua chiave gratuita in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
     return;
   }
 
-  // Valida la chiave Meshy PRIMA di mostrare il messaggio utente (in modalità 3D)
-  if (CONFIG.activeMode === '3d-builder' && !CONFIG.meshyKey) {
+  // Valida la chiave Gemini se in modalità Scripting / GUI / Debugger
+  if (!CONFIG.apiKey && CONFIG.activeMode !== '3d-builder') {
     openSettingsModal();
-    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali, inserisci la tua chiave gratuita di **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
+    const apiInput = document.getElementById('apiKeyInput');
+    if (apiInput) {
+      apiInput.focus();
+      apiInput.classList.add('ring-2', 'ring-blue-400');
+    }
+    alert("Inserisci la tua chiave API Google Gemini gratuita nelle impostazioni per procedere.");
     return;
   }
 
@@ -848,35 +993,211 @@ async function handle3DBuilderPrompt(userPrompt) {
   await generateMeshyModel(userPrompt, refImg);
 }
 
-// Function to add a Luau script specifically tailored to the active 3D model
-async function promptAddScriptToModel() {
-  const modelName = document.getElementById('threeModelTitle')?.textContent || "questo modello 3D";
-  const promptContext = CONFIG.last3DPrompt || "questo modello 3D";
+// ==========================================
+// MODAL & GESTIONE AGGIUNTA SCRIPT PER MODELLI 3D & GUI
+// ==========================================
+
+function openAddScriptModalForModel(modelId) {
+  const model = currentPlace.models.find(m => m.id === modelId) || currentPlace.models[0];
+  const name = model ? model.name : 'Modello 3D';
+  CONFIG.activeAssetForScript = {
+    type: 'model',
+    id: model ? model.id : 'mod_active',
+    name: name,
+    prompt: model ? model.prompt : ''
+  };
+
+  const modal = document.getElementById('addScriptModal');
+  const title = document.getElementById('addScriptModalTitle');
+  const sub = document.getElementById('addScriptModalSub');
+  const icon = document.getElementById('addScriptModalIcon');
+  const grid = document.getElementById('addScriptPresetsGrid');
+  const custom = document.getElementById('addScriptCustomInput');
+
+  if (title) title.textContent = `Aggiungi Script Luau a "${name}"`;
+  if (sub) sub.textContent = 'Scegli come questo modello 3D deve comportarsi dentro Roblox Studio:';
+  if (icon) {
+    icon.className = 'w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center';
+    icon.innerHTML = '<i data-lucide="cuboid" class="w-4 h-4 text-emerald-400"></i>';
+  }
+
+  // Presets per Modello 3D
+  if (grid) {
+    grid.innerHTML = `
+      <button type="button" onclick="selectScriptPreset('Interazione tasto [E] (ProximityPrompt) che aggiunge 100 monete con suono magico e particelle')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-emerald-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">🪙</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">ProximityPrompt [E]</div>
+          <div class="text-[10px] text-gray-400">Interazione tasto E + ricompensa</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Tool equipaggiabile nello zaino (Backpack): impugnabile con animazione di fendente e hitbox al click')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-emerald-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">⚔️</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Tool / Arma Impugnabile</div>
+          <div class="text-[10px] text-gray-400">Equipaggia nello zaino con click</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Animazione fluida di levitazione su e giu e rotazione continua a 360 gradi a mezz aria con TweenService')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-emerald-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">🌀</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Rotazione & Fluttuazione</div>
+          <div class="text-[10px] text-gray-400">Galleggia e ruota a mezz'aria</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Trappola al tocco (.Touched): quando un giocatore tocca il modello perde 25 HP con suono di danno e fumo rosso')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-emerald-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">💥</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Trappola / Danno Touch</div>
+          <div class="text-[10px] text-gray-400">Danno al contatto del player</div>
+        </div>
+      </button>
+    `;
+  }
+
+  if (custom) custom.value = 'Interazione con tasto [E] (ProximityPrompt) che dà 100 monete e riproduce un suono';
+  if (modal) modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function openAddScriptModalForUI(uiId) {
+  const ui = currentPlace.uis.find(u => u.id === uiId) || currentPlace.uis[0];
+  const name = ui ? ui.name : 'Interfaccia GUI';
+  CONFIG.activeAssetForScript = {
+    type: 'ui',
+    id: ui ? ui.id : 'ui_active',
+    name: name
+  };
+
+  const modal = document.getElementById('addScriptModal');
+  const title = document.getElementById('addScriptModalTitle');
+  const sub = document.getElementById('addScriptModalSub');
+  const icon = document.getElementById('addScriptModalIcon');
+  const grid = document.getElementById('addScriptPresetsGrid');
+  const custom = document.getElementById('addScriptCustomInput');
+
+  if (title) title.textContent = `Aggiungi LocalScript a "${name}"`;
+  if (sub) sub.textContent = 'Scegli la logica client per questa interfaccia in StarterGui:';
+  if (icon) {
+    icon.className = 'w-8 h-8 rounded-lg bg-purple-600/20 border border-purple-500/30 flex items-center justify-center';
+    icon.innerHTML = '<i data-lucide="layout" class="w-4 h-4 text-purple-400"></i>';
+  }
+
+  // Presets per GUI
+  if (grid) {
+    grid.innerHTML = `
+      <button type="button" onclick="selectScriptPreset('Aggiornamento dinamico della barra vita con TweenService fluido collegato a Humanoid.HealthChanged')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-purple-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">💖</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Barra Vita Dinamica</div>
+          <div class="text-[10px] text-gray-400">Sincronizzata con la vita reale</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Apertura e chiusura animata del menu premendo il tasto M o cliccando sul pulsante di chiusura X')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-purple-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">🔘</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Apri/Chiudi con Tasto M</div>
+          <div class="text-[10px] text-gray-400">Animazione con UserInputService</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Sistema di Shop: click sui bottoni di acquisto, convalida monete del player e notifica di acquisto completato')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-purple-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">🛒</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Negozio / Acquisto</div>
+          <div class="text-[10px] text-gray-400">Click pulsanti e verifica monete</div>
+        </div>
+      </button>
+      <button type="button" onclick="selectScriptPreset('Sistema di Notifiche Toast: funzione ShowNotification(testo) che fa scorrere un banner a schermo per 3 secondi')" class="p-2.5 rounded-xl bg-roblox-card hover:bg-roblox-card/80 border border-roblox-border hover:border-purple-500/40 text-left transition flex items-center gap-2">
+        <span class="text-base">🔔</span>
+        <div>
+          <div class="font-bold text-white text-[11px]">Notifiche Pop-up</div>
+          <div class="text-[10px] text-gray-400">Banner toast a scomparsa</div>
+        </div>
+      </button>
+    `;
+  }
+
+  if (custom) custom.value = 'Aggiornamento dinamico della barra vita con TweenService fluido quando il giocatore subisce danno';
+  if (modal) modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function selectScriptPreset(text) {
+  const custom = document.getElementById('addScriptCustomInput');
+  if (custom) custom.value = text;
+}
+
+function closeAddScriptModal() {
+  const modal = document.getElementById('addScriptModal');
+  if (modal) modal.classList.add('hidden');
+  CONFIG.activeAssetForScript = null;
+}
+
+function promptAddScriptToModel() {
+  const latest = currentPlace.models[0];
+  openAddScriptModalForModel(latest ? latest.id : 'mod_active');
+}
+
+function promptAddScriptToActiveUI() {
+  const latest = currentPlace.uis[0];
+  openAddScriptModalForUI(latest ? latest.id : 'ui_active');
+}
+
+async function confirmGenerateScriptForAsset() {
+  const custom = document.getElementById('addScriptCustomInput');
+  const userAction = custom ? custom.value.trim() : '';
+
+  if (!userAction) {
+    alert('Inserisci una descrizione del comportamento desiderato!');
+    return;
+  }
 
   if (!CONFIG.apiKey) {
-    alert("Per generare uno script Luau con l'IA, inserisci la tua chiave API Google Gemini gratuita nelle Impostazioni!");
+    alert('Per generare lo script Luau con l\'IA, inserisci la tua chiave gratuita di Google Gemini nelle Impostazioni API!');
+    closeAddScriptModal();
     openSettingsModal();
     return;
   }
 
-  const userAction = prompt(
-    `📜 Quale logica Luau vuoi aggiungere a "${modelName}" per Roblox Studio?\n\nEsempi:\n- "Interazione [E] con ProximityPrompt che dà 100 monete"\n- "Tool da raccogliere e impugnare nello zaino con fendente"\n- "Animazione fluida di rotazione e galleggiamento magico"\n- "Trappola: infligge 25 danni e riproduce un suono quando toccata"\n\nDescrivi il comportamento desiderato:`,
-    "Interazione con tasto [E] (ProximityPrompt) che aggiunge 100 monete al giocatore con suono magico"
-  );
-
-  if (!userAction || !userAction.trim()) return;
+  const asset = CONFIG.activeAssetForScript || { type: 'model', name: 'Asset' };
+  closeAddScriptModal();
 
   showLoading(true);
-  document.getElementById('loadingText').textContent = "Generazione Script Luau per il modello 3D...";
-  document.getElementById('loadingSubText').textContent = `Creazione logiche per: ${modelName}...`;
+  const loadingText = document.getElementById('loadingText');
+  const loadingSub = document.getElementById('loadingSubText');
+  if (loadingText) loadingText.textContent = `Generazione Script Luau per "${asset.name}"...`;
+  if (loadingSub) loadingSub.textContent = `Creazione logiche: ${userAction.substring(0, 40)}...`;
   startLoadingTimer();
 
   try {
-    const fullScriptPrompt = `Ho un modello 3D in Roblox Studio chiamato "${modelName}" (generato con prompt: "${promptContext}"). Scrivi uno script Luau completo, sicuro e moderno per Roblox Studio che implementa questa specifica interazione: "${userAction}".\n\nLinee guida:\n1. Specifica all'inizio il tipo di script (-- TIPO: Script Server / LocalScript) e la posizione consigliata (-- POSIZIONE: Workspace / ServerScriptService).\n2. Assumi che il modello o la parte principale si trovi in Workspace e assegna nomi chiari alle variabili.\n3. Fornisci il codice Luau completo e testato.`;
+    let fullScriptPrompt;
+    if (asset.type === 'ui') {
+      fullScriptPrompt = `Ho un'interfaccia ScreenGui creata per Roblox Studio chiamata "${asset.name}". Scrivi un LocalScript completo, ottimizzato e moderno per Roblox Studio da posizionare dentro alla GUI in StarterGui.
+Comportamento richiesto: "${userAction}".
+Linee guida:
+1. Usa TweenService per le animazioni e UserInputService se ci sono tasti della tastiera.
+2. Includi gestione di errori, percorsi corretti (script.Parent) e suoni se appropriato.
+3. Fornisci SOLO codice Luau completo dentro al blocco \`\`\`luau.`;
+    } else {
+      fullScriptPrompt = `Ho un modello 3D in Roblox Studio chiamato "${asset.name}" posizionato nel Workspace (generato con: "${asset.prompt || asset.name}"). Scrivi uno script Luau completo, sicuro e moderno per Roblox Studio che implementa questa specifica interazione: "${userAction}".
+Linee guida:
+1. Specifica all'inizio il tipo di script (-- TIPO: Script Server / LocalScript) e la posizione consigliata (-- POSIZIONE: Workspace / ServerScriptService).
+2. Assumi che il modello si trovi in Workspace e assegna nomi chiari alle variabili.
+3. Fornisci il codice Luau completo e testato dentro al blocco \`\`\`luau.`;
+    }
+
     const responseText = await callCloudAI(fullScriptPrompt, 'scripting', null);
     processAIResponse(responseText);
     switchOutputTab('code');
-    appendBotMessage(`📜 **Script Luau creato con successo per il tuo modello 3D!**\n\nTrovi il codice pronto nella scheda **"Codice Luau"** con le istruzioni di posizionamento per Roblox Studio. Puoi copiarlo con il pulsante verde per la Command Bar!`);
+
+    // Aggiorna nome script generato con riferimento all'asset
+    if (currentPlace.scripts.length > 0) {
+      currentPlace.scripts[0].name = `Script ${asset.name} - ${userAction.substring(0, 20)}`;
+      saveCurrentPlace();
+    }
+
+    appendBotMessage(`📜 **Script Luau creato e collegato a "${asset.name}"!**\n\n- Comportamento: *${userAction}*\n- Codice pronto nel tab **"Codice Luau"**\n- Clicca su **"⚡ Inietta in Studio (MCP)"** per applicarlo istantaneamente dentro Roblox Studio!`);
+
   } catch(err) {
     appendBotMessage(`⚠️ Errore durante la creazione dello script Luau: ${err.message}`);
   } finally {
@@ -905,7 +1226,7 @@ async function generateMeshyModel(prompt, referenceImage = null) {
         body: JSON.stringify({
           image_url: referenceImage,
           enable_pbr: true,
-          surface_mode: 'hard'
+          should_texture: true
         })
       });
 
@@ -1405,32 +1726,41 @@ async function callCloudAI(userPrompt, mode, abortSignal) {
   const systemInstruction = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.scripting;
 
   if (CONFIG.modelProvider.startsWith('gemini')) {
-    const model = CONFIG.modelProvider;
-    console.log(`[BloxCraft] Chiamata a Google Generative AI (${model})...`);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${CONFIG.apiKey}`;
+    // Normalizza: se è rimasto gemini-3.8 o simile, usa gemini-2.0-flash
+    let model = CONFIG.modelProvider;
+    if (model.includes('3.8') || model.includes('gemini-3')) {
+      model = 'gemini-2.0-flash';
+      CONFIG.modelProvider = 'gemini-2.0-flash';
+      localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
+    }
 
-    const payload = {
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: userPrompt }]
-        }
-      ],
-      systemInstruction: {
-        parts: [{ text: systemInstruction }]
-      },
-      generationConfig: {
-        temperature: 0.5,
-        maxOutputTokens: 8192
-      }
+    console.log(`[BloxCraft] Chiamata a Google Generative AI (${model})...`);
+    const makeGeminiRequest = async (targetModel) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${CONFIG.apiKey}`;
+      const payload = {
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        generationConfig: { temperature: 0.5, maxOutputTokens: 8192 }
+      };
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: abortSignal
+      });
     };
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: abortSignal
-    });
+    let res = await makeGeminiRequest(model);
+
+    // Fallback automatico se il modello specifico restituisce 404 (non trovato)
+    if (!res.ok && res.status === 404 && model !== 'gemini-1.5-flash') {
+      console.warn(`[BloxCraft] Modello ${model} non trovato (404), fallback automatico a gemini-1.5-flash...`);
+      res = await makeGeminiRequest('gemini-1.5-flash');
+      if (res.ok) {
+        CONFIG.modelProvider = 'gemini-1.5-flash';
+        localStorage.setItem('bloxcraft_model_provider', 'gemini-1.5-flash');
+      }
+    }
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
@@ -2370,13 +2700,17 @@ function renderFallbackUIPreview() {
 
 // Chat UI Appends & State Tracking
 function appendUserMessage(text) {
-  CONFIG.chatMessages.push({ sender: 'user', text, timestamp: Date.now() });
+  ensurePlaceChats();
+  const mode = CONFIG.activeMode || 'scripting';
+  if (!currentPlace.chats[mode]) currentPlace.chats[mode] = [];
+  currentPlace.chats[mode].push({ sender: 'user', text, timestamp: Date.now() });
   renderUserBubbleDOM(text);
-  saveCurrentProjectState();
+  saveCurrentPlace();
 }
 
 function renderUserBubbleDOM(text) {
   const chat = document.getElementById('chatHistory');
+  if (!chat) return;
   const div = document.createElement('div');
   div.className = "flex gap-3 text-sm justify-end chat-bubble";
   div.innerHTML = `
@@ -2392,9 +2726,12 @@ function renderUserBubbleDOM(text) {
 }
 
 function appendBotMessage(text) {
-  CONFIG.chatMessages.push({ sender: 'bot', text, timestamp: Date.now() });
+  ensurePlaceChats();
+  const mode = CONFIG.activeMode || 'scripting';
+  if (!currentPlace.chats[mode]) currentPlace.chats[mode] = [];
+  currentPlace.chats[mode].push({ sender: 'bot', text, timestamp: Date.now() });
   renderBotBubbleDOM(text);
-  saveCurrentProjectState();
+  saveCurrentPlace();
 }
 
 function appendSystemNotice(text) {
