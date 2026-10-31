@@ -31,6 +31,7 @@ const CONFIG = {
 let activeAbortController = null;
 let loadingTimerInterval = null;
 let loadingStartTime = 0;
+let isGenerating = false; // Guard anti-doppio-invio
 
 // Meshy/Tripo polling variables
 let meshyPollInterval = null;
@@ -730,6 +731,9 @@ function cancelActivePrompt() {
 
 // Main Submit Prompt Function
 async function submitPrompt() {
+  // Guard anti-doppio-invio
+  if (isGenerating) return;
+
   const input = document.getElementById('userPromptInput');
   let prompt = input.value.trim();
 
@@ -740,10 +744,26 @@ async function submitPrompt() {
 
   if (!prompt) return;
 
+  // Valida la chiave Gemini PRIMA di mostrare il messaggio utente
   if (!CONFIG.apiKey && CONFIG.activeMode !== '3d-builder') {
     openSettingsModal();
     alert("Inserisci la tua chiave API Google Gemini nelle impostazioni per procedere.");
     return;
+  }
+
+  // Valida la chiave Meshy PRIMA di mostrare il messaggio utente (in modalità 3D)
+  if (CONFIG.activeMode === '3d-builder' && !CONFIG.meshyKey) {
+    openSettingsModal();
+    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali, inserisci la tua chiave gratuita di **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
+    return;
+  }
+
+  // Blocca ulteriori invii e aggiorna UI
+  isGenerating = true;
+  const sendBtn = document.getElementById('sendPromptBtn');
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>...</span>`;
   }
 
   const hasReference = !!CONFIG.referenceImage;
@@ -756,44 +776,46 @@ async function submitPrompt() {
   }
   input.value = '';
 
-  if (CONFIG.activeMode === '3d-builder') {
-    await handle3DBuilderPrompt(prompt);
-  } else {
-    showLoading(true);
-    startLoadingTimer();
+  try {
+    if (CONFIG.activeMode === '3d-builder') {
+      await handle3DBuilderPrompt(prompt);
+    } else {
+      showLoading(true);
+      startLoadingTimer();
 
-    activeAbortController = new AbortController();
-    const timeoutId = setTimeout(() => {
-      if (activeAbortController) activeAbortController.abort();
-    }, 150000);
+      activeAbortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        if (activeAbortController) activeAbortController.abort();
+      }, 150000);
 
-    try {
-      const responseText = await callCloudAI(prompt, CONFIG.activeMode, activeAbortController.signal);
-      clearTimeout(timeoutId);
-      processAIResponse(responseText);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        appendBotMessage('⚠️ **Richiesta interrotta**: La chiamata ha impiegato troppo tempo. Riprova.');
-      } else {
-        appendBotMessage(`⚠️ **Errore**: ${err.message || 'Verifica la tua chiave API o la connessione.'}`);
+      try {
+        const responseText = await callCloudAI(prompt, CONFIG.activeMode, activeAbortController.signal);
+        clearTimeout(timeoutId);
+        processAIResponse(responseText);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          appendBotMessage('⚠️ **Richiesta interrotta**: La chiamata ha impiegato troppo tempo. Riprova.');
+        } else {
+          appendBotMessage(`⚠️ **Errore**: ${err.message || 'Verifica la tua chiave API o la connessione.'}`);
+        }
+      } finally {
+        stopLoadingTimer();
+        showLoading(false);
+        activeAbortController = null;
       }
-    } finally {
-      stopLoadingTimer();
-      showLoading(false);
-      activeAbortController = null;
+    }
+  } finally {
+    // Ripristina sempre il bottone e il guard
+    isGenerating = false;
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg><span>Genera</span>`;
     }
   }
 }
 
 async function handle3DBuilderPrompt(userPrompt) {
-  // Check 3D Key
-  if (!CONFIG.meshyKey) {
-    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali, inserisci la tua chiave gratuita di **Meshy AI** in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
-    openSettingsModal();
-    return;
-  }
-
   // Check if user accidentally pasted Tripo key into Meshy field
   if (CONFIG.meshyKey.startsWith('tsk_')) {
     appendBotMessage(`⚠️ **Attenzione Chiave API:** Nel campo *Chiave Meshy AI* è presente una chiave Tripo3D (\`tsk_...\`).\nLa chiave di Meshy AI inizia con \`msy_...\`. Creala gratuitamente su [app.meshy.ai](https://app.meshy.ai).`);
