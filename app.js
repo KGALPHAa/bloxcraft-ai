@@ -1060,13 +1060,19 @@ async function handle3DBuilderPrompt(userPrompt) {
     appendTypingIndicator(typingId);
 
     activeAbortController = new AbortController();
+    // Timeout esteso a 5 minuti per 3D Builder (immagini + prompt complessi richiedono più tempo)
     const timeoutId = setTimeout(() => {
       if (activeAbortController) activeAbortController.abort();
-    }, 150000);
+    }, 300000);
 
     try {
+      // Comprimi l'immagine reference prima di inviarla (riduce tempi di upload/elaborazione)
+      let compressedRef = refImg;
+      if (refImg) {
+        try { compressedRef = await compressImageForAI(refImg, 768); } catch(e) { /* usa originale */ }
+      }
       // Usa la catena fallback: 2.5 Pro → 3.8 Pro → 3.8 Flash → 2.5 Flash
-      const responseText = await call3DAIWithFallback(userPrompt, activeAbortController.signal, refImg);
+      const responseText = await call3DAIWithFallback(userPrompt, activeAbortController.signal, compressedRef);
       clearTimeout(timeoutId);
       removeTypingIndicator(typingId);
 
@@ -1839,6 +1845,27 @@ function stopLoadingTimer() {
     clearInterval(loadingTimerInterval);
     loadingTimerInterval = null;
   }
+}
+
+// ==========================================
+// COMPRESSIONE IMMAGINE PER AI (riduce payload, velocizza l'invio)
+// ==========================================
+function compressImageForAI(dataURI, maxDim = 768, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width <= maxDim && height <= maxDim) { resolve(dataURI); return; }
+      if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+      else { width = Math.round(width * maxDim / height); height = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataURI;
+  });
 }
 
 // ==========================================
