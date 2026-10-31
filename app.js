@@ -10,6 +10,7 @@ if (!savedProvider || savedProvider.includes('3.8') || savedProvider.includes('g
 const CONFIG = {
   activeMode: 'scripting',
   activeOutputTab: 'code',
+  engine3D: localStorage.getItem('bloxcraft_3d_engine') || 'native', // 'native' (Gemini Vision + Studio Luau illimitato) | 'meshy' (.GLB)
   apiKey: localStorage.getItem('bloxcraft_api_key') || '',
   meshyKey: localStorage.getItem('bloxcraft_meshy_key') || '',
   tripoKey: localStorage.getItem('bloxcraft_tripo_key') || '',
@@ -21,7 +22,7 @@ const CONFIG = {
   currentGlbUrl: null,        // URL of last GLB loaded from Meshy/Tripo
   last3DPrompt: '',           // Description of current 3D model
   currentGlbBlob: null,       // Blob for download
-  referenceImage: null,       // Base64 data URI per Image-to-3D Meshy
+  referenceImage: null,       // Base64 data URI per Image-to-3D Meshy o Gemini Vision
   referenceImageName: '',     // Nome file reference
   activeAssetForScript: null, // Asset target per aggiunta script: { type: 'model'|'ui', id, name }
   currentProjectId: localStorage.getItem('bloxcraft_current_project_id') || 'project_default'
@@ -60,16 +61,36 @@ Linee guida fondamentali:
    - Prima parte: Spiegazione sintetica di come funziona e istruzioni per Roblox Studio.
    - Seconda parte: Il blocco di codice completo Luau (\`\`\`lua ... \`\`\`). Non omettere parti di codice con "...resto del codice...", scrivi sempre l'implementazione completa e funzionante.`,
 
-  '3d-builder': `Sei BloxCraft 3D Builder per Roblox Studio.
-Il tuo compito è scrivere codice Luau che costruisce il modello 3D descritto programmaticamente in Roblox Studio.
+  '3d-builder': `Sei BloxCraft 3D Master Studio Architect per Roblox Engine.
+Il tuo compito è creare un modello 3D procedurale dettagliato, proporzionato e spettacolare per Roblox Studio.
+Se l'utente fornisce un'immagine reference, analizza visivamente la creatura, il drago, il personaggio, l'arma, l'edificio o il veicolo nell'immagine: riproducine le proporzioni, i colori esatti e i dettagli distintivi.
 
-Linee guida:
-1. Crea un Model in Workspace con tutte le Parts raggruppate e PrimaryPart assegnata.
-2. Usa materiali Roblox realistici: Enum.Material.SmoothPlastic, Metal, Wood, Slate, Marble, Neon, Glass ecc.
-3. Usa colori Color3.fromRGB() realistici.
-4. Âncora tutte le parti (Anchored = true) e imposta dimensioni proporzionate (usa le studs Roblox).
-5. Aggiungi commenti in italiano per ogni sezione del modello.
-6. Fornisci solo il blocco di codice lua senza lunghe spiegazioni.`,
+DEVI FORNIRE OBBLIGATORIAMENTE DUE BLOCCHI NELLA TUA RISPOSTA:
+
+1. Un blocco \`\`\`3d_manifest ... \`\`\` in formato JSON valido per la visualizzazione WebGL a 360° nel browser:
+{
+  "name": "Nome Descrittivo del Modello",
+  "parts": [
+    { "type": "box", "size": [x, y, z], "pos": [x, y, z], "rot": [0, 0, 0], "color": "#hexColor", "material": "plastic|metal|wood|neon|glass" },
+    ...
+  ]
+}
+Regole per il manifest:
+- Componi il modello con 15-40 parti dettagliate (es. per un drago: busto, collo, testa, corna, ali segmentate, zampe, artigli, coda, occhi neon).
+- Tipi supportati per "type": "box", "cylinder", "sphere", "wedge".
+- Posizioni e dimensioni realistiche (studs Roblox).
+
+2. Un blocco \`\`\`luau ... \`\`\` con lo script completo per Roblox Studio:
+-- TIPO: Script / Command Bar
+-- POSIZIONE: Workspace
+local model = Instance.new("Model")
+model.Name = "NomeModello"
+model.Parent = workspace
+-- crea ogni parte con Instance.new("Part"), CFrame, Size, Color3.fromRGB, Material, Anchored = true
+...
+model.PrimaryPart = primaryPart
+
+Includi materiali Roblox (Enum.Material.Neon, SmoothPlastic, Metal), luci PointLight e particelle ParticleEmitter se magico.`,
 
   'ui-designer': `Sei BloxCraft GUI & HUD Designer, specializzato nel design di interfacce utente moderne per Roblox (stile giochi AAA front-page: anime, sci-fi, RPG, simulator).
 
@@ -123,6 +144,27 @@ const MODE_INFO = {
   }
 };
 
+// ==========================================
+// 3D ENGINE SELECTOR
+// ==========================================
+
+function set3DEngine(engine) {
+  CONFIG.engine3D = engine;
+  localStorage.setItem('bloxcraft_3d_engine', engine);
+  const nativeBtn = document.getElementById('engine-native-btn');
+  const meshyBtn = document.getElementById('engine-meshy-btn');
+  if (nativeBtn && meshyBtn) {
+    if (engine === 'native') {
+      nativeBtn.className = "px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+      meshyBtn.className = "px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition text-gray-400 hover:text-white";
+    } else {
+      meshyBtn.className = "px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition bg-purple-500/20 text-purple-300 border border-purple-500/40";
+      nativeBtn.className = "px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition text-gray-400 hover:text-white";
+    }
+  }
+  console.log(`[BloxCraft] Engine 3D impostato: ${engine === 'native' ? '⚡ Studio Nativo (Gemini Vision)' : '🎨 Meshy AI (.GLB)'}`);
+}
+
 // Initialize App on DOM Load
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
@@ -155,6 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => checkMcpStatus(false), 5000);
     // Supporto Drag & Drop e Incolla (CTRL+V) per Immagini Reference
     initImageDropSupport();
+    // Inizializza i pulsanti engine 3D con lo stato salvato
+    set3DEngine(CONFIG.engine3D);
   }, 100);
 });
 
@@ -879,20 +923,20 @@ async function submitPrompt() {
 
   if (!prompt) return;
 
-  // Valida la chiave Meshy se in modalità 3D
-  if (CONFIG.activeMode === '3d-builder' && !CONFIG.meshyKey) {
+  // Valida la chiave Meshy se in modalità 3D AND engine è Meshy
+  if (CONFIG.activeMode === '3d-builder' && CONFIG.engine3D === 'meshy' && !CONFIG.meshyKey) {
     openSettingsModal();
     const meshyInput = document.getElementById('meshyKeyInput');
     if (meshyInput) {
       meshyInput.focus();
       meshyInput.classList.add('ring-2', 'ring-emerald-400');
     }
-    appendBotMessage(`⚠️ **Modalità 3D Builder attiva**\nPer generare modelli 3D reali con Meshy AI, inserisci la tua chiave gratuita in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.`);
+    appendBotMessage(`⚠️ **Modalità 3D Builder attiva (Meshy AI)**\nPer generare modelli 3D GLB reali con Meshy AI, inserisci la tua chiave gratuita in ⚙️ **Impostazioni API**.\n\n📌 **Come ottenerla gratis (200 crediti/mese):**\n1. Vai su [app.meshy.ai](https://app.meshy.ai) → Accedi con Google\n2. Vai su **Settings → API Keys** e copia la chiave (\`msy_...\`)\n3. Incollala nelle impostazioni di BloxCraft AI.\n\n💡 **Alternativa gratuita e illimitata:** Passa a **⚡ Studio Nativo** (usa Gemini Vision, 0 crediti, 1.500 richieste/giorno).`);
     return;
   }
 
-  // Valida la chiave Gemini se in modalità Scripting / GUI / Debugger
-  if (!CONFIG.apiKey && CONFIG.activeMode !== '3d-builder') {
+  // Valida la chiave Gemini se in modalità Scripting / GUI / Debugger O se 3D Builder con engine nativo
+  if (!CONFIG.apiKey && (CONFIG.activeMode !== '3d-builder' || CONFIG.engine3D === 'native')) {
     openSettingsModal();
     const apiInput = document.getElementById('apiKeyInput');
     if (apiInput) {
@@ -967,6 +1011,85 @@ async function submitPrompt() {
 }
 
 async function handle3DBuilderPrompt(userPrompt) {
+  // Remember prompt for optional scripting later
+  CONFIG.last3DPrompt = userPrompt;
+  const refImg = CONFIG.referenceImage;
+  const refImgName = CONFIG.referenceImageName;
+
+  // ────────────────────────────────────────────────────────────
+  // ENGINE NATIVO: Gemini Vision + Procedural Luau (ILLIMITATO)
+  // ────────────────────────────────────────────────────────────
+  if (CONFIG.engine3D === 'native') {
+    if (!CONFIG.apiKey) {
+      openSettingsModal();
+      appendBotMessage(`⚠️ **Chiave Gemini richiesta per Studio Nativo**\nInserisci la tua chiave Google Gemini API gratuita in ⚙️ **Impostazioni API**.`);
+      return;
+    }
+
+    if (refImg) {
+      appendBotMessage(`🧠 **Studio Nativo — Analisi Immagine con Gemini Vision**\nSto analizzando l'immagine reference \`${refImgName || 'immagine'}\` per riprodurre proporzioni, colori e dettagli nel modello 3D procedurale Roblox...`);
+    } else {
+      appendBotMessage(`⚡ **Studio Nativo — Generazione 3D Procedurale**\nSto generando il modello 3D con Gemini AI... Creerò sia il manifest WebGL per la preview che il codice Luau completo per Roblox Studio.`);
+    }
+
+    // Pulisci riferimento immagine dopo uso
+    removeReferenceImage();
+    switchOutputTab('3d');
+
+    showLoading(true);
+    startLoadingTimer();
+
+    const typingId = 'typing_' + Date.now();
+    appendTypingIndicator(typingId);
+
+    activeAbortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      if (activeAbortController) activeAbortController.abort();
+    }, 150000);
+
+    try {
+      const responseText = await callCloudAI(userPrompt, '3d-builder', activeAbortController.signal, refImg);
+      clearTimeout(timeoutId);
+      removeTypingIndicator(typingId);
+
+      // Parse e render 3D manifest + codice Luau
+      processAIResponse(responseText);
+
+      // Salva modello nativo come asset nel place
+      const modelName = (userPrompt && userPrompt.length > 28) ? userPrompt.substring(0, 28) + '...' : (userPrompt || 'Modello 3D Nativo');
+      const nativeModelAsset = {
+        id: 'mod_' + Date.now(),
+        name: modelName,
+        glbUrl: null, // nessun GLB, è procedurale
+        manifest: CONFIG.current3DManifest,
+        prompt: userPrompt,
+        luauCode: CONFIG.generatedCode,
+        date: Date.now()
+      };
+      currentPlace.models.unshift(nativeModelAsset);
+      saveCurrentPlace();
+      renderPlaceAssetsList();
+
+    } catch (err) {
+      clearTimeout(timeoutId);
+      removeTypingIndicator(typingId);
+      if (err.name === 'AbortError') {
+        appendBotMessage('⚠️ **Richiesta interrotta**: La generazione ha impiegato troppo tempo. Riprova.');
+      } else {
+        appendBotMessage(`❌ **Errore Studio Nativo**: ${err.message || 'Verifica la chiave API Gemini nelle impostazioni.'}`);
+      }
+    } finally {
+      stopLoadingTimer();
+      showLoading(false);
+      activeAbortController = null;
+    }
+    return;
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // ENGINE MESHY: Mesh GLB reale (.GLB con texture PBR)
+  // ────────────────────────────────────────────────────────────
+
   // Check if user accidentally pasted Tripo key into Meshy field
   if (CONFIG.meshyKey.startsWith('tsk_')) {
     appendBotMessage(`⚠️ **Attenzione Chiave API:** Nel campo *Chiave Meshy AI* è presente una chiave Tripo3D (\`tsk_...\`).\nLa chiave di Meshy AI inizia con \`msy_...\`. Creala gratuitamente su [app.meshy.ai](https://app.meshy.ai).`);
@@ -974,18 +1097,12 @@ async function handle3DBuilderPrompt(userPrompt) {
     return;
   }
 
-  // Remember prompt for optional scripting later
-  CONFIG.last3DPrompt = userPrompt;
-  const refImg = CONFIG.referenceImage;
-  const refImgName = CONFIG.referenceImageName;
-
-  // DIRECT 3D GENERATION: No Gemini intervention!
   if (refImg) {
     appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy Image-to-3D avviata!**\nReference: \`${refImgName || 'immagine'}\`\nSto trasformando l'immagine in un modello 3D GLB texturizzato. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
   } else {
     appendBotMessage(`🎨 **Generazione Mesh 3D con Meshy AI avviata!**\nSto creando il modello 3D in cloud per te. Richiede circa 1-2 minuti. Segui l'avanzamento nel viewport 3D.`);
   }
-  
+
   // Pulisci l'immagine dal box di input dopo l'invio
   removeReferenceImage();
   switchOutputTab('3d');
@@ -1706,8 +1823,8 @@ function stopLoadingTimer() {
   }
 }
 
-// Call Cloud AI (Gemini or Groq)
-async function callCloudAI(userPrompt, mode, abortSignal) {
+// Call Cloud AI (Gemini or Groq) — supporta input multimodale (immagini reference)
+async function callCloudAI(userPrompt, mode, abortSignal, referenceImageData = null) {
   const systemInstruction = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.scripting;
 
   if (CONFIG.modelProvider.startsWith('gemini')) {
@@ -1719,11 +1836,31 @@ async function callCloudAI(userPrompt, mode, abortSignal) {
       localStorage.setItem('bloxcraft_model_provider', 'gemini-2.0-flash');
     }
 
-    console.log(`[BloxCraft] Chiamata a Google Generative AI (${model})...`);
+    console.log(`[BloxCraft] Chiamata a Google Generative AI (${model})${referenceImageData ? ' [VISION+IMAGE]' : ''}...`);
+
+    // Costruisci i parts: se c'è un'immagine, aggiungila come inlineData prima del testo
+    const buildParts = (includeImage) => {
+      const parts = [];
+      if (includeImage && referenceImageData) {
+        // referenceImageData è una data URI: "data:image/png;base64,XXXX..."
+        const matches = referenceImageData.match(/^data:([a-zA-Z0-9/+]+);base64,(.+)$/);
+        if (matches) {
+          parts.push({
+            inlineData: {
+              mimeType: matches[1],
+              data: matches[2]
+            }
+          });
+        }
+      }
+      parts.push({ text: userPrompt });
+      return parts;
+    };
+
     const makeGeminiRequest = async (targetModel) => {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${CONFIG.apiKey}`;
       const payload = {
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        contents: [{ role: "user", parts: buildParts(true) }],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: { temperature: 0.5, maxOutputTokens: 8192 }
       };
@@ -3096,7 +3233,18 @@ async function injectModelToStudio() {
   const existingModel = currentPlace.models.find(m => m.glbUrl === glbUrl || m.name.toLowerCase() === modelName.toLowerCase());
   let attachedScriptCode = existingModel && existingModel.attachedScript ? existingModel.attachedScript.code : null;
 
-  // Genera lo script Luau di inserimento mesh/modello in Workspace
+  // ── ENGINE NATIVO: usa il codice Luau procedurale già generato ──
+  if (CONFIG.engine3D === 'native' && CONFIG.generatedCode && !glbUrl) {
+    let nativeLuau = CONFIG.generatedCode;
+    // Aggiungi lo script associato se presente
+    if (attachedScriptCode) {
+      nativeLuau += `\n\n-- Script di comportamento associato al modello\nlocal scriptObj = Instance.new("Script")\nscriptObj.Name = "${modelName.replace(/["\\]/g, '')}_Behavior"\nscriptObj.Source = [==[\n${attachedScriptCode}\n]==]\nscriptObj.Parent = model or workspace\nprint("[BloxCraft AI] Script comportamento aggiunto!")\n`;
+    }
+    await injectScriptToStudio(nativeLuau, "Modello 3D Nativo: " + modelName);
+    return;
+  }
+
+  // ── ENGINE MESHY: genera lo script Luau di inserimento mesh/modello in Workspace ──
   let luauInjection = `-- BloxCraft AI 3D Mesh Inserter
 local Workspace = game:GetService("Workspace")
 local InsertService = game:GetService("InsertService")
