@@ -262,6 +262,26 @@
 
           <!-- Bottom Prompt Box -->
           <div class="p-4 border-t border-roblox-border bg-roblox-surface/80">
+            <!-- Hidden Reference Image Input -->
+            <input type="file" id="referenceImageInput" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="handleImageFileSelect(event)">
+
+            <!-- Reference Image Preview Chip -->
+            <div id="imageReferencePreview" class="hidden flex items-center justify-between px-3 py-2 mb-2 bg-purple-500/10 border border-purple-500/30 rounded-xl text-xs transition-all">
+              <div class="flex items-center gap-2.5 overflow-hidden">
+                <img id="imageReferenceThumb" src="" alt="Reference" class="w-10 h-10 object-cover rounded-lg border border-purple-500/40 shadow-sm shrink-0" />
+                <div class="truncate">
+                  <div class="flex items-center gap-1.5 font-semibold text-purple-300">
+                    <i data-lucide="image" class="w-3.5 h-3.5 text-purple-400"></i>
+                    <span id="imageReferenceName" class="truncate max-w-[170px]">immagine_reference.png</span>
+                  </div>
+                  <span class="text-[10px] text-gray-400">Reference pronta per Meshy Image-to-3D</span>
+                </div>
+              </div>
+              <button onclick="removeReferenceImage()" class="p-1 rounded-lg hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition" title="Rimuovi immagine reference">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+
             <div class="relative bg-roblox-card border border-roblox-border focus-within:border-roblox-accent rounded-xl transition-all shadow-inner">
               <textarea 
                 id="userPromptInput" 
@@ -272,9 +292,20 @@
               ></textarea>
 
               <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between">
-                <span class="text-[11px] text-gray-500 flex items-center gap-1">
-                  <kbd class="px-1.5 py-0.5 rounded bg-roblox-surface text-[10px] text-gray-400 border border-roblox-border">Invio</kbd> per inviare
-                </span>
+                <div class="flex items-center gap-2">
+                  <button 
+                    type="button"
+                    onclick="triggerImageUpload()" 
+                    id="uploadRefImgBtn"
+                    class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-roblox-surface hover:bg-roblox-border text-gray-300 hover:text-white border border-roblox-border text-xs transition shadow-sm" 
+                    title="Carica un'immagine reference dal tuo computer per generare un modello 3D da immagine!">
+                    <i data-lucide="image-plus" class="w-3.5 h-3.5 text-purple-400"></i>
+                    <span class="text-[11px] font-medium">Carica Immagine</span>
+                  </button>
+                  <span class="text-[11px] text-gray-500 hidden sm:flex items-center gap-1">
+                    <kbd class="px-1.5 py-0.5 rounded bg-roblox-surface text-[10px] text-gray-400 border border-roblox-border">Invio</kbd> per inviare
+                  </span>
+                </div>
                 <button 
                   id="sendPromptBtn"
                   onclick="submitPrompt()" 
@@ -460,8 +491,9 @@
                   <i data-lucide="cuboid" class="w-8 h-8 text-emerald-400"></i>
                 </div>
                 <h4 class="text-sm font-bold text-white mb-1">Motore 3D Mesh — Meshy AI</h4>
-                <p class="text-xs text-gray-400 max-w-sm">Passa alla modalità <strong>3D Builder</strong>, descrivi il modello e Meshy AI genererà una vera mesh 3D GLB professionale da ruotare qui e importare in Roblox Studio!</p>
-                <p class="text-[11px] text-yellow-400/80 mt-3 max-w-xs">⚙️ Ricordati di aggiungere la chiave Meshy AI gratuita nelle Impostazioni API.</p>
+                <p class="text-xs text-gray-400 max-w-sm">Passa alla modalità <strong>3D Builder</strong>: descrivi il modello a parole oppure <strong>carica un'immagine reference</strong> con il pulsante <em>Carica Immagine</em> per generare un modello 3D GLB fedele alla tua immagine!</p>
+                <p class="text-[11px] text-purple-400/90 mt-2 font-medium">📷 Supporta Text-to-3D e Image-to-3D (trascina o incolla con CTRL+V)</p>
+                <p class="text-[11px] text-yellow-400/80 mt-1 max-w-xs">⚙️ Ricordati di aggiungere la chiave Meshy AI gratuita nelle Impostazioni API.</p>
               </div>
             </div>
 
