@@ -1,14 +1,21 @@
 // BloxCraft AI - Dedicated Roblox Assistant Core Engine
 
-// Modelli Gemini validi supportati dall'app
+// Modelli Gemini validi supportati dall'app (v1beta)
 const VALID_GEMINI_MODELS = [
   'gemini-2.5-pro', 'gemini-2.5-flash',
-  'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'
+  'gemini-2.0-flash', 'gemini-1.5-pro'
 ];
 
-// Normalizzazione modello salvato: rimuovi versioni obsolete o non riconosciute
+// Modelli obsoleti/rimossi da v1beta — forzano reset a gemini-2.0-flash
+const OBSOLETE_MODELS = [
+  'gemini-1.5-flash',  // rimosso da v1beta
+  'gemini-3.8-flash', 'gemini-3.8-pro', 'gemini-3.8-flash-lite',
+];
+
+// Normalizzazione modello salvato
 let savedProvider = localStorage.getItem('bloxcraft_model_provider');
 const isObsolete = !savedProvider
+  || OBSOLETE_MODELS.includes(savedProvider)
   || savedProvider.includes('3.8')
   || savedProvider.includes('gemini-3')
   || savedProvider.includes('gemini-4')
