@@ -783,6 +783,10 @@ async function submitPrompt() {
       showLoading(true);
       startLoadingTimer();
 
+      // Mostra typing indicator nella chat
+      const typingId = 'typing_' + Date.now();
+      appendTypingIndicator(typingId);
+
       activeAbortController = new AbortController();
       const timeoutId = setTimeout(() => {
         if (activeAbortController) activeAbortController.abort();
@@ -791,9 +795,11 @@ async function submitPrompt() {
       try {
         const responseText = await callCloudAI(prompt, CONFIG.activeMode, activeAbortController.signal);
         clearTimeout(timeoutId);
+        removeTypingIndicator(typingId);
         processAIResponse(responseText);
       } catch (err) {
         clearTimeout(timeoutId);
+        removeTypingIndicator(typingId);
         if (err.name === 'AbortError') {
           appendBotMessage('⚠️ **Richiesta interrotta**: La chiamata ha impiegato troppo tempo. Riprova.');
         } else {
@@ -2401,6 +2407,47 @@ function appendSystemNotice(text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Mostra un indicatore "AI sta scrivendo..." nella chat durante la generazione
+function appendTypingIndicator(id) {
+  const chat = document.getElementById('chatHistory');
+  if (!chat) return;
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = 'flex gap-3 text-sm chat-bubble items-center';
+  div.innerHTML = `
+    <div class="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+      <svg class="w-3.5 h-3.5 text-blue-400 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+    </div>
+    <div class="flex flex-col gap-1">
+      <div class="font-semibold text-gray-400 text-xs">BloxCraft AI</div>
+      <div class="flex items-center gap-2 bg-roblox-card border border-roblox-border rounded-2xl rounded-tl-none px-3 py-2">
+        <span class="text-xs text-blue-300 animate-pulse font-medium">✦ Generazione in corso...</span>
+        <span id="${id}_timer" class="text-[10px] text-gray-500 font-mono">00:00</span>
+      </div>
+    </div>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  // Aggiorna il timer interno al bubble
+  const timerEl = document.getElementById(`${id}_timer`);
+  const startTime = Date.now();
+  div._timerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const ss = String(elapsed % 60).padStart(2, '0');
+    if (timerEl) timerEl.textContent = `${mm}:${ss}`;
+  }, 1000);
+}
+
+// Rimuove il typing indicator dalla chat
+function removeTypingIndicator(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    if (el._timerInterval) clearInterval(el._timerInterval);
+    el.remove();
+  }
+}
+
 function renderBotBubbleDOM(text) {
   const chat = document.getElementById('chatHistory');
   const div = document.createElement('div');
@@ -2553,9 +2600,8 @@ function closeGuideModal() {
 // Loading state
 function showLoading(show) {
   const overlay = document.getElementById('loadingOverlay');
-  const btn = document.getElementById('sendPromptBtn');
-  overlay.classList.toggle('hidden', !show);
-  btn.disabled = show;
+  if (overlay) overlay.classList.toggle('hidden', !show);
+  // Nota: btn.disabled è gestito dal finally di submitPrompt — non toccare qui
 }
 
 // Utility
